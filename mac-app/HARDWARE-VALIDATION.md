@@ -46,6 +46,19 @@ The MX66L1G45G database entry also lists 512 data bytes. The current Read
 action saves the 128 MiB code region; record the 512-byte auxiliary region
 separately when multi-region support is implemented.
 
+### Observed result so far
+
+On the target Mac, the user reported that the T76 connected as firmware
+`00.1.18` over USB High Speed, and that **Auto Detect SOIC16** offered
+`MX66L1G45G@SOIC16` for the inserted chip. A subsequent **Program…** action
+ended with “Programming completed and verified by a readback.” The Log also
+showed `firmware_mismatch` warnings against the pinned database target. This
+is evidence that one programming pass and its internal readback completed;
+the original image, independent full dumps, external comparison, and second
+photographed chip have not yet been recorded. The Hex buffer shown after
+Program is not automatically refreshed from the chip. Do not treat its size
+or contents as a post-program dump.
+
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 
 ```sh
@@ -81,4 +94,5 @@ disposable parts. The GUI now exposes database-driven program and erase
 controls where an electronic ID and erase capability are present. Do not use
 them on the requested Macronix parts until their placement, repeated full
 reads, and original backup have been checked. Test mutation first on a
-disposable rewritable part.
+disposable rewritable part. The observed MX66L1G45G programming pass above
+does not replace these remaining checks.
