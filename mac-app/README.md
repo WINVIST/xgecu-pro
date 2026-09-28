@@ -23,10 +23,12 @@ and start at step 3 below. Until then, use a successful CI artifact.
    on the [Actions page](https://github.com/WINVIST/xgecu-pro/actions/workflows/macos.yml).
 2. Under **Artifacts**, download `XGecuPro-macOS-arm64-unsigned`. GitHub gives
    you an outer ZIP containing `XGecuPro-macOS-arm64.zip` and its `.sha256` file.
-3. Extract the outer ZIP. In Terminal, from that folder, run
-   `shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256`. After it reports `OK`,
-   extract `XGecuPro-macOS-arm64.zip` and move `XGecuPro.app` to
-   **Applications**. Keep the inner ZIP if you want a copy of the exact build.
+3. For an Actions artifact, extract the outer ZIP; Release assets are already
+   separate files. In Terminal, from the folder containing the app ZIP and its
+   `.sha256` file, run `shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256`.
+   After it reports `OK`, extract `XGecuPro-macOS-arm64.zip` and move
+   `XGecuPro.app` to **Applications**. Keep the ZIP if you want a copy of the
+   exact build.
 4. Open the app. This CI build has an ad hoc code signature, but no Apple
    Developer ID signature or notarization. If macOS blocks it, use
    **System Settings → Privacy & Security → Open Anyway** after the first
