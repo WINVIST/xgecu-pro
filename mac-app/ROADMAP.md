@@ -86,7 +86,15 @@ the recorded results with the original dumps.
 - Implemented in source: read-only chip database details for package, pin
   count, memory sizes, page size, electronic ID, and erased value.
 
-## 4. Optional backlog — wait for the user's decision
+## 4. Requested after basic hardware acceptance
+
+- Add a browsable catalog of the entire available chip database. Let the user
+  mark frequently used entries as favorites; show favorites at the top of the
+  chip picker and when the search field opens. Keep search across the full
+  database and distinguish favorites from hardware-validated read/write
+  support. Do this after the target-Mac detect and read flow is accepted.
+
+## 5. Optional backlog — wait for the user's decision
 
 - Fuse/config/lock operations, multi-region memories, and package/socket
   diagrams after their CLI path and chip metadata are verified.
