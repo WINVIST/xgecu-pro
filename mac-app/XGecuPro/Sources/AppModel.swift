@@ -83,6 +83,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func blankCheck() {
+        guard readyForChipOperation else { return }
+        perform(["blank", selectedChip]) { [weak self] result in
+            let blank = result["blank"] as? Bool ?? false
+            self?.status = blank
+                ? "Микросхема пуста: все байты совпали со значением стирания."
+                : "Микросхема не пуста. Перед стиранием сохраните дамп."
+        }
+    }
+
     func writeChip() {
         guard readyForMutation else { return }
         let panel = NSOpenPanel()

@@ -192,6 +192,19 @@ impl Reporter for HumanReporter {
             Outcome::Ok { op } => {
                 anstream::println!("{} {op}: ok", "✓".green().bold());
             }
+            Outcome::Blank { device, blank } => {
+                let mark = if *blank {
+                    format!("{}", "✓".green().bold())
+                } else {
+                    format!("{}", "!".yellow().bold())
+                };
+                anstream::println!(
+                    "{} blank check {}: {}",
+                    mark,
+                    device.bold(),
+                    if *blank { "blank" } else { "not blank" }
+                );
+            }
         }
     }
 }
@@ -364,6 +377,10 @@ pub fn outcome_summary(out: &Outcome) -> String {
             model, firmware, ..
         } => format!("{model} fw {firmware}"),
         Outcome::Ok { op } => format!("{op}: ok"),
+        Outcome::Blank { device, blank } => format!(
+            "blank check {device}: {}",
+            if *blank { "blank" } else { "not blank" }
+        ),
     }
 }
 

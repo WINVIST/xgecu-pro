@@ -62,6 +62,8 @@ private struct ContentView: View {
                         .disabled(!model.canReadSelected)
                     Button("Прочитать…") { model.readChip() }
                         .disabled(!model.canReadSelected)
+                    Button("Проверить пустоту") { model.blankCheck() }
+                        .disabled(!model.canReadSelected)
                     Button("Записать…") { model.writeChip() }
                         .disabled(!model.canWriteSelected)
                     Button("Стереть") { model.eraseChip() }

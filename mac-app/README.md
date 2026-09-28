@@ -36,7 +36,8 @@ in the app to work offline.
 
 Connect the T76 through a USB 2.0 cable or hub on Apple Silicon. Click
 **Подключить**, search for a chip, select it, and use **Определить ID** or
-**Прочитать**. Reads are repeated by the Rust backend; the app marks an
+**Прочитать**. **Проверить пустоту** compares the entire code region with the
+chip's erased value. Reads are repeated by the Rust backend; the app marks an
 unstable result and previews the first 4 KiB of the saved dump.
 
 The GUI enables read and ID checks for AT27C256R, MX27C2000, W27C512, and

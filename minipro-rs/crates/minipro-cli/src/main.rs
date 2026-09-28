@@ -160,6 +160,11 @@ enum Command {
         /// Chip name, e.g. "W25Q64BV@SOIC8"
         chip: String,
     },
+    /// Compare the selected chip's code region with its erased value
+    Blank {
+        /// Chip name, e.g. "W27C512@DIP28"
+        chip: String,
+    },
     /// Show programmer identity and firmware status
     Info,
     /// Search the chip database (capped and counted)
@@ -214,6 +219,7 @@ impl Command {
             Command::Read { .. } => "read",
             Command::Write { .. } => "write",
             Command::Erase { .. } => "erase",
+            Command::Blank { .. } => "blank",
             Command::Info => "info",
             Command::Search { .. } => "search",
             Command::Tui => "tui",
@@ -381,6 +387,7 @@ fn main() -> ExitCode {
             &mut *reporter_for(mode),
         ),
         Command::Erase { chip } => run_erase(db_dir, chip, &mut *reporter_for(mode)),
+        Command::Blank { chip } => run_blank(db_dir, chip, &mut *reporter_for(mode)),
         Command::Info => run_info(db_dir, &mut *reporter_for(mode)),
         Command::Detect { like } => run_detect(db_dir, like, mode),
         Command::Logic { chip } => run_logic(db_dir, chip, mode),
@@ -863,6 +870,28 @@ fn run_erase(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Resul
     erase_with_programmer(&mut *prog, &dev, rep)
 }
 
+fn run_blank(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Result<()> {
+    let db = load_db(db_dir, rep)?;
+    let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
+    let mut prog = open_programmer()?;
+    warn_firmware(&*prog, &*db, rep);
+
+    let blank = {
+        let mut txn = Txn::begin(&mut *prog, &dev)?;
+        let (p, s) = txn.parts();
+        pincheck(p, s, false, rep)?;
+        check_chip_id(p, s, &dev, false, rep)?;
+        p.memory()
+            .ok_or(Error::Unsupported("memory ops"))?
+            .blank_check(s, Region::code(&dev))?
+    };
+    rep.finish(&Outcome::Blank {
+        device: dev.name,
+        blank,
+    });
+    Ok(())
+}
+
 fn erase_with_programmer(
     prog: &mut dyn Programmer,
     dev: &minipro_core::device::Device,
@@ -1286,6 +1315,13 @@ mod tests {
 
     #[test]
     fn logic_and_autodetect_parse() {
+        match parse(&["minipro", "blank", "W27C512@DIP28"])
+            .command
+            .unwrap()
+        {
+            Command::Blank { chip } => assert_eq!(chip, "W27C512@DIP28"),
+            _ => panic!("expected blank check"),
+        }
         match parse(&["minipro", "logic", "7400@DIP14"]).command.unwrap() {
             Command::Logic { chip } => assert_eq!(chip, "7400@DIP14"),
             _ => panic!("expected logic"),

@@ -60,6 +60,8 @@ pub enum Outcome {
         /// Running the bootloader instead of firmware (interrupted update).
         bootloader: bool,
     },
+    /// Result of comparing the selected memory region with its erased value.
+    Blank { device: String, blank: bool },
     /// A generic success with no payload (erase, write).
     Ok { op: &'static str },
 }
@@ -122,6 +124,14 @@ impl serde::Serialize for Outcome {
                 let mut m = ser.serialize_map(Some(2))?;
                 m.serialize_entry("op", op)?;
                 m.serialize_entry("ok", &true)?;
+                m.end()
+            }
+            Outcome::Blank { device, blank } => {
+                let mut m = ser.serialize_map(Some(4))?;
+                m.serialize_entry("op", "blank")?;
+                m.serialize_entry("ok", &true)?;
+                m.serialize_entry("dev", device)?;
+                m.serialize_entry("blank", blank)?;
                 m.end()
             }
         }
@@ -193,6 +203,19 @@ mod tests {
         assert_eq!(v["serial"], "SN123");
         assert_eq!(v["mfg_date"], "20240101");
         assert_eq!(v["device_code"], "T76");
+    }
+
+    #[test]
+    fn blank_check_serializes_false_as_a_valid_result() {
+        let out = Outcome::Blank {
+            device: "W27C512@DIP28".into(),
+            blank: false,
+        };
+        let value = serde_json::to_value(out).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"op": "blank", "ok": true, "dev": "W27C512@DIP28", "blank": false})
+        );
     }
 
     #[test]
