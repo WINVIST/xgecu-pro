@@ -228,6 +228,9 @@ final class AppModel: ObservableObject {
         panel.canChooseDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         databasePath = url.path
+        hits = []
+        selectedChip = ""
+        chipDetails = nil
         status = "Local database selected: \(url.lastPathComponent)."
     }
 
