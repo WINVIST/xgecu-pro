@@ -384,7 +384,7 @@ pub(crate) fn logic_pass(
 ) -> Result<Vec<u8>> {
     let pins = usize::from(pin_count);
     let vecs = usize::from(vector_count);
-    if pins == 0 || vecs == 0 || vectors.len() < pins * vecs {
+    if pins == 0 || pins > 48 || vecs == 0 || vectors.len() < pins * vecs {
         return Err(Error::Unsupported("device has no logic-test vectors"));
     }
     let mut result = Vec::with_capacity(pins * vecs);

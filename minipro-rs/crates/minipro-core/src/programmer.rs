@@ -136,7 +136,18 @@ pub struct Txn<'p> {
 impl<'p> Txn<'p> {
     /// Begin a guarded transaction.
     pub fn begin(prog: &'p mut dyn Programmer, dev: &Device) -> Result<Txn<'p>> {
-        let session = prog.begin(dev)?;
+        let session = match prog.begin(dev) {
+            Ok(session) => session,
+            Err(error) => {
+                // BEGIN_TRANS may already have reached the device when setup
+                // fails (for example, during the overcurrent status read).
+                let _ = prog.end(Session {
+                    device: dev.clone(),
+                    emmc_capacity: 0,
+                });
+                return Err(error);
+            }
+        };
         Ok(Txn { prog, session })
     }
     /// Access the programmer and session together for an operation. Total: the
@@ -154,5 +165,64 @@ impl Drop for Txn<'_> {
         // propagate, and the transaction is ending regardless, so there is
         // nothing actionable to recover from an `end()` error here.
         let _ = self.prog.end(std::mem::take(&mut self.session));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::ChipId;
+    use crate::error::{Error, FwVersion};
+
+    struct FailingBegin {
+        info: ProgrammerInfo,
+        ends: usize,
+    }
+
+    impl Programmer for FailingBegin {
+        fn info(&self) -> &ProgrammerInfo {
+            &self.info
+        }
+        fn caps(&self) -> Caps {
+            Caps::empty()
+        }
+        fn begin(&mut self, _dev: &Device) -> Result<Session> {
+            Err(Error::Overcurrent)
+        }
+        fn end(&mut self, _session: Session) -> Result<()> {
+            self.ends += 1;
+            Ok(())
+        }
+        fn identify(&mut self, _session: &Session) -> Result<ChipId> {
+            Err(Error::Protocol)
+        }
+        fn reset(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn failed_begin_attempts_to_deenergize_socket() {
+        let mut fake = FailingBegin {
+            info: ProgrammerInfo {
+                model: "T76".into(),
+                firmware: FwVersion(0),
+                serial: String::new(),
+                mfg_date: String::new(),
+                device_code: String::new(),
+                link: LinkSpeed::High,
+                voltage: 5.0,
+                bootloader: false,
+            },
+            ends: 0,
+        };
+        assert_eq!(
+            Txn::begin(&mut fake, &Device::default())
+                .err()
+                .unwrap()
+                .code(),
+            "overcurrent"
+        );
+        assert_eq!(fake.ends, 1);
     }
 }

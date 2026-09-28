@@ -408,7 +408,13 @@ fn main() -> ExitCode {
 pub(crate) fn open_programmer() -> Result<Box<dyn Programmer>> {
     let tx = minipro_usb::UsbTransport::open_any()?;
     tx.check_link()?; // macOS + SuperSpeed diagnosis, not a bare I/O error
-    minipro_proto::detect(Box::new(tx))
+    let prog = minipro_proto::detect(Box::new(tx))?;
+    if std::env::var("MINIPRO_REQUIRE_MODEL").ok().as_deref() == Some("T76")
+        && prog.info().model != "T76"
+    {
+        return Err(Error::Unsupported("this application requires an XGecu T76"));
+    }
+    Ok(prog)
 }
 
 /// Load the chip database. Boxed so callers stay backend-agnostic once a
@@ -480,7 +486,7 @@ fn load_local_db(path: &Path) -> Result<Box<dyn ChipDb>> {
 fn local_candidates() -> Vec<PathBuf> {
     let mut v = Vec::new();
     let cache = default_cache_dir();
-    v.push(cache.join("xgpro")); // unpacked by the default source
+    v.push(cache.join("xgpro")); // legacy unpacked cache, before digest pinning
     v.push(cache.join("mirror")); // provisioned from a --db-url mirror
     v.push(cache.join("xgpro_vendor.rar")); // a previous default-source download
     if let Ok(home) = std::env::var("HOME") {
@@ -492,7 +498,7 @@ fn local_candidates() -> Vec<PathBuf> {
 }
 
 /// The zero-setup default: XGecu's own installer archive from the community
-/// mirror, cached and read in place (nothing proprietary is unpacked to disk).
+/// mirror, verified, unpacked into the local cache, then loaded.
 #[cfg(feature = "net")]
 fn load_default_source(rep: &mut dyn Reporter) -> std::result::Result<Box<dyn ChipDb>, String> {
     use minipro_db::vendor;
@@ -504,7 +510,7 @@ fn load_default_source(rep: &mut dyn Reporter) -> std::result::Result<Box<dyn Ch
         .as_deref()
         .filter(|u| !u.is_empty())
         .unwrap_or(vendor::DEFAULT_VENDOR_ARCHIVE);
-    if vendor::cached_archive(&cache).is_none() {
+    if vendor::cached_archive(&cache, url).is_none() {
         rep.event(&Event::Note(
             format!(
                 "fetching the chip database once from {url} (~63 MB, cached at {})",
@@ -560,6 +566,12 @@ fn load_db(dir: Option<&Path>, rep: &mut dyn Reporter) -> Result<Box<dyn ChipDb>
         Ok(db) => return Ok(db),
         Err(msg) => msg,
     };
+
+    // The macOS GUI requires the pinned default source or an explicitly
+    // selected local database; never silently fall back to a legacy cache.
+    if std::env::var_os("MINIPRO_TRUST_PINNED_DB_ONLY").is_some() {
+        return Err(Error::Format(default_err));
+    }
 
     // 4: anything already on disk.
     for cand in local_candidates() {
@@ -712,9 +724,22 @@ fn run_read(
 /// to `code_size` with the chip's erased byte (`blank`, so read-back verify of
 /// the tail matches the real erased state), and reject one larger than the chip.
 fn load_image(file: &Path, format: Fmt, code_size: u64, blank: u8) -> Result<Image> {
+    let need = usize::try_from(code_size)
+        .map_err(|_| Error::Format("chip capacity is too large for this host".into()))?;
+    if need > minipro_core::format::MAX_IMAGE_BYTES {
+        return Err(Error::Format(
+            "chip capacity exceeds the supported image limit".into(),
+        ));
+    }
+    if std::fs::metadata(file)?.len() > (256 << 20) {
+        return Err(Error::Format(
+            "image file exceeds the 256 MiB input limit".into(),
+        ));
+    }
     let raw = std::fs::read(file)?;
-    let mut image = format.for_input(file, &raw).parse(&raw, blank)?;
-    let need = code_size as usize;
+    let mut image = format
+        .for_input(file, &raw)
+        .parse_with_limit(&raw, blank, need)?;
     match image.bytes.len().cmp(&need) {
         std::cmp::Ordering::Greater => Err(Error::Format(format!(
             "image is {} bytes but the chip holds {} — too large",
@@ -747,11 +772,55 @@ fn run_write(
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
 
+    write_to_programmer(
+        &mut *prog,
+        &dev,
+        &image,
+        dry_run,
+        no_erase,
+        skip_pincheck,
+        force,
+        rep,
+    )
+}
+
+/// Validate the seated part before protect-off or erase can change it.
+fn validate_chip_before_mutation(
+    prog: &mut dyn Programmer,
+    dev: &minipro_core::device::Device,
+    force: bool,
+    rep: &mut dyn Reporter,
+) -> Result<()> {
+    if std::env::var_os("MINIPRO_REQUIRE_CHIP_ID").is_some() && dev.chip_id_bytes == 0 {
+        return Err(Error::Unsupported(
+            "this application requires a chip with an electronic ID",
+        ));
+    }
+    let mut txn = Txn::begin(prog, dev)?;
+    let (p, s) = txn.parts();
+    check_chip_id(p, s, dev, force, rep)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_to_programmer(
+    prog: &mut dyn Programmer,
+    dev: &minipro_core::device::Device,
+    image: &Image,
+    dry_run: bool,
+    no_erase: bool,
+    skip_pincheck: bool,
+    force: bool,
+    rep: &mut dyn Reporter,
+) -> Result<()> {
+    if !dry_run {
+        validate_chip_before_mutation(prog, dev, force, rep)?;
+    }
+
     // Parts flagged OFF_PROTECT_BEFORE (most SPI NOR included) need
     // write-protect lifted in its own transaction first — otherwise the
     // program pass changes nothing. No-op elsewhere; skipped on dry runs.
     if !dry_run {
-        ops::lift_protect(&mut *prog, &dev)?;
+        ops::lift_protect(prog, dev)?;
     }
 
     // The C erases before writing whenever the chip supports it (flash can
@@ -759,29 +828,26 @@ fn run_write(
     // verify). Same gate as the C: can_erase, unless --no-erase. Its own
     // transaction, like lift_protect. No-op on OTP parts and dry runs.
     if !dry_run && !no_erase && dev.can_erase() {
-        let mut txn = Txn::begin(&mut *prog, &dev)?;
+        let mut txn = Txn::begin(prog, dev)?;
         let (p, s) = txn.parts();
         let mem = p.memory().ok_or(Error::Unsupported("memory ops"))?;
         mem.erase(s, EraseKind::Chip)?;
     }
 
     {
-        let mut txn = Txn::begin(&mut *prog, &dev)?;
+        let mut txn = Txn::begin(prog, dev)?;
         let (p, s) = txn.parts();
         pincheck(p, s, skip_pincheck, rep)?;
-        check_chip_id(p, s, &dev, force, rep)?;
-        // Everything above is what a read does too — `Txn::begin` takes only the
-        // device, so the socket is energized identically either way. The single
-        // destructive step is below, which is what `--dry-run` skips: it makes
-        // the setup verifiable on parts that cannot survive a bad write (an OTP
-        // EPROM, or anything whose contents matter).
+        check_chip_id(p, s, dev, force, rep)?;
+        // A dry run performs the same setup and ID check as a read, then stops
+        // before any protect, erase, or write operation.
         if dry_run {
             rep.finish(&Outcome::Ok {
                 op: "write-dry-run",
             });
             return Ok(());
         }
-        ops::write_region(p, s, Region::code(&dev), &image, rep)?;
+        ops::write_region(p, s, Region::code(dev), image, rep)?;
     }
 
     rep.finish(&Outcome::Ok { op: "write" });
@@ -794,8 +860,18 @@ fn run_erase(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Resul
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
 
+    erase_with_programmer(&mut *prog, &dev, rep)
+}
+
+fn erase_with_programmer(
+    prog: &mut dyn Programmer,
+    dev: &minipro_core::device::Device,
+    rep: &mut dyn Reporter,
+) -> Result<()> {
+    validate_chip_before_mutation(prog, dev, false, rep)?;
+
     {
-        let mut txn = Txn::begin(&mut *prog, &dev)?;
+        let mut txn = Txn::begin(prog, dev)?;
         let (p, s) = txn.parts();
         let mem = p.memory().ok_or(Error::Unsupported("memory ops"))?;
         mem.erase(s, EraseKind::Chip)?;
@@ -1000,12 +1076,15 @@ fn run_logic(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
     };
     let pass = {
         let mut load = bitstream_loader(&*db);
-        let logic = prog
-            .logic()
-            .ok_or(Error::Unsupported("this programmer has no logic test"))?;
-        logic.run(&session, &mut load)?
+        match prog.logic() {
+            Some(logic) => logic.run(&session, &mut load),
+            None => Err(Error::Unsupported("this programmer has no logic test")),
+        }
     };
-    prog.end(session)?; // de-energize the socket (end the transaction)
+    // END_TRANS is needed on both success and error paths.
+    let end = prog.end(session);
+    let pass = pass?;
+    end?;
 
     match mode {
         Mode::Json => {
@@ -1367,6 +1446,143 @@ mod tests {
             c.iter().any(|p| p.ends_with("xgpro_vendor.rar")),
             "a previously downloaded archive must be a candidate"
         );
+    }
+
+    #[test]
+    fn destructive_operations_check_id_before_erase_or_write() {
+        use minipro_core::caps::MemoryOps;
+        use minipro_core::device::{flags, BlockReq, ChipId, Device};
+        use minipro_core::error::FwVersion;
+        use minipro_core::programmer::{Caps, ProgrammerInfo, Session};
+        use minipro_core::transport::LinkSpeed;
+
+        struct Fake {
+            info: ProgrammerInfo,
+            observed_id: u32,
+            actions: Vec<&'static str>,
+        }
+        impl Programmer for Fake {
+            fn info(&self) -> &ProgrammerInfo {
+                &self.info
+            }
+            fn caps(&self) -> Caps {
+                Caps::MEMORY
+            }
+            fn begin(&mut self, dev: &Device) -> Result<Session> {
+                self.actions.push("begin");
+                Ok(Session {
+                    device: dev.clone(),
+                    emmc_capacity: 0,
+                })
+            }
+            fn end(&mut self, _s: Session) -> Result<()> {
+                self.actions.push("end");
+                Ok(())
+            }
+            fn identify(&mut self, _s: &Session) -> Result<ChipId> {
+                self.actions.push("identify");
+                Ok(ChipId {
+                    raw: self.observed_id,
+                    bytes: 2,
+                })
+            }
+            fn reset(&mut self) -> Result<()> {
+                Ok(())
+            }
+            fn memory(&mut self) -> Option<&mut dyn MemoryOps> {
+                Some(self)
+            }
+        }
+        impl MemoryOps for Fake {
+            fn read_block(&mut self, _s: &Session, req: &BlockReq) -> Result<Vec<u8>> {
+                self.actions.push("read");
+                Ok(vec![0xff; req.len as usize])
+            }
+            fn write_block(&mut self, _s: &Session, _req: &BlockReq, _data: &[u8]) -> Result<()> {
+                self.actions.push("write");
+                Ok(())
+            }
+            fn erase(&mut self, _s: &Session, _k: EraseKind) -> Result<()> {
+                self.actions.push("erase");
+                Ok(())
+            }
+            fn blank_check(&mut self, _s: &Session, _r: Region) -> Result<bool> {
+                Ok(true)
+            }
+        }
+        struct Silent;
+        impl Reporter for Silent {
+            fn event(&mut self, _e: &Event) {}
+            fn finish(&mut self, _o: &Outcome) {}
+        }
+        let dev = Device {
+            name: "TEST@DIP8".into(),
+            code_size: 8,
+            page_size: 8,
+            chip_id: 0x1234,
+            chip_id_bytes: 2,
+            raw_flags: flags::CAN_ERASE,
+            ..Device::default()
+        };
+        let make_fake = |observed_id| Fake {
+            info: ProgrammerInfo {
+                model: "T76".into(),
+                firmware: FwVersion(0),
+                serial: String::new(),
+                mfg_date: String::new(),
+                device_code: String::new(),
+                link: LinkSpeed::High,
+                voltage: 5.0,
+                bootloader: false,
+            },
+            observed_id,
+            actions: Vec::new(),
+        };
+        let image = Image {
+            bytes: vec![0xff; 8],
+        };
+        let mut wrong = make_fake(0x5678);
+        assert_eq!(
+            write_to_programmer(
+                &mut wrong,
+                &dev,
+                &image,
+                false,
+                false,
+                false,
+                false,
+                &mut Silent
+            )
+            .unwrap_err()
+            .code(),
+            "chip_id_mismatch"
+        );
+        assert_eq!(wrong.actions, ["begin", "identify", "end"]);
+        let mut wrong = make_fake(0x5678);
+        assert_eq!(
+            erase_with_programmer(&mut wrong, &dev, &mut Silent)
+                .unwrap_err()
+                .code(),
+            "chip_id_mismatch"
+        );
+        assert_eq!(wrong.actions, ["begin", "identify", "end"]);
+
+        let mut right = make_fake(0x1234);
+        write_to_programmer(
+            &mut right,
+            &dev,
+            &image,
+            false,
+            false,
+            false,
+            false,
+            &mut Silent,
+        )
+        .unwrap();
+        let first_id = right.actions.iter().position(|a| *a == "identify").unwrap();
+        let first_erase = right.actions.iter().position(|a| *a == "erase").unwrap();
+        let first_write = right.actions.iter().position(|a| *a == "write").unwrap();
+        assert!(first_id < first_erase && first_erase < first_write);
     }
 
     /// End-to-end over the trait surface without hardware: a fake programmer

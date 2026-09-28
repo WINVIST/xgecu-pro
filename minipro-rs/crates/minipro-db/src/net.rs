@@ -80,7 +80,7 @@ impl HttpDb {
         };
 
         if rebuild {
-            let dll = http_get(&dll_url)?;
+            let dll = http_get(&dll_url, 32 << 20)?;
             if let Some(want) = dll_sha256 {
                 verify_sha256(&dll, want)?;
             }
@@ -138,7 +138,7 @@ impl ChipDb for HttpDb {
         // Utility bitstreams (TestLgcPull, TTL1, …) live in the same algoT76/
         // as chip bitstreams — fetched by name, cached the same way.
         for remote in [format!("{name}.alg"), format!("T7_{name}.alg")] {
-            if let Ok(bytes) = http_get(&format!("{}/algoT76/{remote}", self.base_url)) {
+            if let Ok(bytes) = http_get(&format!("{}/algoT76/{remote}", self.base_url), 8 << 20) {
                 let tmp = local.with_extension("alg.part");
                 std::fs::write(&tmp, &bytes)?;
                 std::fs::rename(&tmp, &local)?;
@@ -220,13 +220,20 @@ fn agent() -> &'static ureq::Agent {
     })
 }
 
-pub(crate) fn http_get(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn http_get(url: &str, max_bytes: u64) -> Result<Vec<u8>> {
     let resp = agent()
         .get(url)
         .call()
         .map_err(|e| Error::Format(format!("HTTP GET {url}: {e}")))?;
     let mut buf = Vec::new();
-    resp.into_reader().read_to_end(&mut buf)?;
+    resp.into_reader()
+        .take(max_bytes + 1)
+        .read_to_end(&mut buf)?;
+    if buf.len() as u64 > max_bytes {
+        return Err(Error::Format(format!(
+            "HTTP GET {url}: response exceeds {max_bytes} bytes"
+        )));
+    }
     Ok(buf)
 }
 

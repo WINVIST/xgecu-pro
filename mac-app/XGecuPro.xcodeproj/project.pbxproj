@@ -1,0 +1,147 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+
+/* Begin PBXBuildFile section */
+  A10000000000000000000001 /* XGecuProApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* XGecuProApp.swift */; };
+  A10000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppModel.swift */; };
+  A10000000000000000000003 /* MiniProRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* MiniProRunner.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+  A20000000000000000000001 /* XGecuProApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XGecuProApp.swift; sourceTree = "<group>"; };
+  A20000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+  A20000000000000000000003 /* MiniProRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniProRunner.swift; sourceTree = "<group>"; };
+  A20000000000000000000004 /* XGecuPro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XGecuPro.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+  A30000000000000000000001 = {
+   isa = PBXGroup;
+   children = (A30000000000000000000002 /* XGecuPro */, A30000000000000000000003 /* Products */);
+   sourceTree = "<group>";
+  };
+  A30000000000000000000002 /* XGecuPro */ = {
+   isa = PBXGroup;
+   children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003);
+   path = XGecuPro/Sources;
+   sourceTree = "<group>";
+  };
+  A30000000000000000000003 /* Products */ = {
+   isa = PBXGroup;
+   children = (A20000000000000000000004);
+   name = Products;
+   sourceTree = "<group>";
+  };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+  A40000000000000000000001 /* XGecuPro */ = {
+   isa = PBXNativeTarget;
+   buildConfigurationList = A70000000000000000000002;
+   buildPhases = (A50000000000000000000001, A50000000000000000000002);
+   buildRules = ();
+   dependencies = ();
+   name = XGecuPro;
+   productName = XGecuPro;
+   productReference = A20000000000000000000004;
+   productType = "com.apple.product-type.application";
+  };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+  A60000000000000000000001 /* Project object */ = {
+   isa = PBXProject;
+   attributes = {
+    BuildIndependentTargetsInParallel = 1;
+    LastUpgradeCheck = 2600;
+    TargetAttributes = { A40000000000000000000001 = { CreatedOnToolsVersion = 26.0; }; };
+   };
+   buildConfigurationList = A70000000000000000000001;
+   compatibilityVersion = "Xcode 14.0";
+   developmentRegion = ru;
+   hasScannedForEncodings = 0;
+   knownRegions = (ru, en, Base);
+   mainGroup = A30000000000000000000001;
+   productRefGroup = A30000000000000000000003;
+   projectDirPath = "";
+   projectRoot = "";
+   targets = (A40000000000000000000001);
+  };
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+  A50000000000000000000001 /* Sources */ = {
+   isa = PBXSourcesBuildPhase;
+   buildActionMask = 2147483647;
+   files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003);
+   runOnlyForDeploymentPostprocessing = 0;
+  };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+  A50000000000000000000002 /* Build and bundle minipro */ = {
+   isa = PBXShellScriptBuildPhase;
+   alwaysOutOfDate = 1;
+   buildActionMask = 2147483647;
+   files = ();
+   inputPaths = ();
+   name = "Build and bundle minipro";
+   outputPaths = ();
+   runOnlyForDeploymentPostprocessing = 0;
+   shellPath = /bin/sh;
+   shellScript = "set -eu\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\ncd \"$SRCROOT/../minipro-rs\"\ncargo build --release --locked --target aarch64-apple-darwin -p minipro-cli\nmkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\ncp target/aarch64-apple-darwin/release/minipro \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/minipro\"\n";
+  };
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+  A80000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+  A80000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+  A80000000000000000000003 /* Debug */ = {
+   isa = XCBuildConfiguration;
+   buildSettings = {
+    ARCHS = arm64;
+    CODE_SIGNING_ALLOWED = NO;
+    CURRENT_PROJECT_VERSION = 1;
+    GENERATE_INFOPLIST_FILE = YES;
+    INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
+    LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+    MACOSX_DEPLOYMENT_TARGET = 26.0;
+    MARKETING_VERSION = 0.1.0;
+    PRODUCT_BUNDLE_IDENTIFIER = ru.winvist.xgecupro;
+    PRODUCT_NAME = "$(TARGET_NAME)";
+    SDKROOT = macosx;
+    SWIFT_VERSION = 5.0;
+   };
+   name = Debug;
+  };
+  A80000000000000000000004 /* Release */ = {
+   isa = XCBuildConfiguration;
+   buildSettings = {
+    ARCHS = arm64;
+    CODE_SIGNING_ALLOWED = NO;
+    CURRENT_PROJECT_VERSION = 1;
+    GENERATE_INFOPLIST_FILE = YES;
+    INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
+    LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+    MACOSX_DEPLOYMENT_TARGET = 26.0;
+    MARKETING_VERSION = 0.1.0;
+    PRODUCT_BUNDLE_IDENTIFIER = ru.winvist.xgecupro;
+    PRODUCT_NAME = "$(TARGET_NAME)";
+    SDKROOT = macosx;
+    SWIFT_VERSION = 5.0;
+   };
+   name = Release;
+  };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+  A70000000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000001, A80000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A70000000000000000000002 /* Build configuration list for PBXNativeTarget */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000003, A80000000000000000000004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+ };
+ rootObject = A60000000000000000000001;
+}

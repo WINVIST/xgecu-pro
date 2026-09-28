@@ -75,6 +75,9 @@ impl Pe {
         let nsec = rd16(e_lfanew + 6) as usize;
         let opt_size = rd16(e_lfanew + 20) as usize;
         let opt = e_lfanew + 24;
+        if opt_size < 32 || opt.checked_add(opt_size).is_none_or(|end| end > data.len()) {
+            return Err(Error::Format("truncated PE optional header".into()));
+        }
         let magic = rd16(opt);
         if magic != 0x10b {
             return Err(Error::Format("expected a 32-bit (PE32) DLL".into()));
@@ -617,6 +620,16 @@ fn decode_ic(pe: &Pe, ic: usize) -> Option<Device> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncated_optional_header_is_a_format_error() {
+        let mut bytes = vec![0u8; 0x80];
+        bytes[0..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        bytes[0x40..0x44].copy_from_slice(b"PE\0\0");
+        bytes[0x54..0x56].copy_from_slice(&2u16.to_le_bytes());
+        assert_eq!(Pe::parse(bytes).err().unwrap().code(), "format");
+    }
 
     /// Opt-in: extract the real DLL. `MINIPRO_DLL_DIR=/tmp/dlldb-test cargo test -p minipro-db real_dll`
     #[test]

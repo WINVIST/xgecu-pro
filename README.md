@@ -7,6 +7,9 @@ The centerpiece is [`minipro-rs/`](minipro-rs/): a Rust CLI that drives the
 zlib, no XML step — it reads XGecu's `InfoICT76.dll` chip database directly and
 ships human / JSON / TUI output modes.
 
+For a native Apple Silicon windowed frontend focused on the T76, see
+[`mac-app/`](mac-app/README.md).
+
 ```
 minipro info                          # identify the programmer
 minipro detect                        # read the seated chip's electronic id

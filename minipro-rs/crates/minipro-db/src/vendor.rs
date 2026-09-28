@@ -22,6 +22,7 @@
 //! renders with the concrete next step, because the fallback (`--db <dir>`)
 //! only helps if the user knows to reach for it.
 
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 use minipro_core::error::{Error, Result};
@@ -33,6 +34,12 @@ use crate::{extract, DllDb};
 /// underneath a user mid-session.
 pub const DEFAULT_VENDOR_ARCHIVE: &str =
     "https://github.com/Kreeblah/XGecu_Software/raw/master/Xgpro/13/xgpro_T76_V1321.rar";
+
+/// SHA-256 of the V13.21 archive. The URL names a branch, so its content can
+/// change without the filename changing; pin the bytes used by default.
+const DEFAULT_VENDOR_SHA256: &str =
+    "b0c2e0afaea1c2680c0aa8a24f1cb68fd88dc227d08ccc697121948e612e5c8e";
+const MAX_ARCHIVE_BYTES: u64 = 96 << 20;
 
 /// Local cache filename for the fetched archive.
 const ARCHIVE_FILE: &str = "xgpro_vendor.rar";
@@ -101,18 +108,33 @@ impl From<FetchError> for Error {
 }
 
 /// Path of the cached archive, if a plausible one is already present.
-pub fn cached_archive(cache_dir: &Path) -> Option<PathBuf> {
+pub fn cached_archive(cache_dir: &Path, url: &str) -> Option<PathBuf> {
     let p = cache_dir.join(ARCHIVE_FILE);
     let big_enough = std::fs::metadata(&p)
-        .map(|m| m.is_file() && m.len() >= MIN_ARCHIVE_BYTES)
+        .map(|m| m.is_file() && m.len() >= MIN_ARCHIVE_BYTES && m.len() <= MAX_ARCHIVE_BYTES)
         .unwrap_or(false);
-    big_enough.then_some(p)
+    if !big_enough {
+        return None;
+    }
+    let bytes = std::fs::read(&p).ok()?;
+    archive_digest_matches(&bytes, url).then_some(p)
+}
+
+fn archive_digest_matches(bytes: &[u8], url: &str) -> bool {
+    if url != DEFAULT_VENDOR_ARCHIVE {
+        return true;
+    } // explicit override
+    let got: String = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    got == DEFAULT_VENDOR_SHA256
 }
 
 /// Ensure the vendor archive is cached locally, downloading it if needed, and
 /// return its path. A cached archive is reused without touching the network.
 pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBuf, FetchError> {
-    if let Some(hit) = cached_archive(cache_dir) {
+    if let Some(hit) = cached_archive(cache_dir, url) {
         return Ok(hit);
     }
     std::fs::create_dir_all(cache_dir).map_err(|e| FetchError::Cache {
@@ -120,7 +142,7 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
         detail: e.to_string(),
     })?;
 
-    let bytes = crate::net::http_get(url).map_err(|e| classify(url, &e))?;
+    let bytes = crate::net::http_get(url, MAX_ARCHIVE_BYTES).map_err(|e| classify(url, &e))?;
 
     if (bytes.len() as u64) < MIN_ARCHIVE_BYTES {
         return Err(FetchError::Corrupt {
@@ -138,6 +160,12 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
             detail: "the response is not a RAR archive (an error page or redirect?)".into(),
         });
     }
+    if !archive_digest_matches(&bytes, url) {
+        return Err(FetchError::Corrupt {
+            url: url.to_string(),
+            detail: "SHA-256 does not match the pinned Xgpro T76 V13.21 archive".into(),
+        });
+    }
 
     // Write via a temporary file so an interrupted run never leaves a partial
     // archive that a later run would trust.
@@ -147,6 +175,12 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
         path: tmp.clone(),
         detail: e.to_string(),
     })?;
+    if final_path.exists() {
+        std::fs::remove_file(&final_path).map_err(|e| FetchError::Cache {
+            path: final_path.clone(),
+            detail: e.to_string(),
+        })?;
+    }
     std::fs::rename(&tmp, &final_path).map_err(|e| FetchError::Cache {
         path: final_path.clone(),
         detail: e.to_string(),
@@ -155,7 +189,8 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
 }
 
 /// Where the unpacked database lives inside the cache.
-const UNPACK_DIR: &str = "xgpro";
+const VERIFIED_UNPACK_DIR: &str = "xgpro-pinned-v1321";
+const CUSTOM_UNPACK_DIR: &str = "xgpro-custom";
 
 /// Open the default database: an already-unpacked copy if present, otherwise
 /// fetch the vendor archive and unpack it once.
@@ -165,7 +200,11 @@ const UNPACK_DIR: &str = "xgpro";
 /// the second result, so the caller can tell "could not get the file" from
 /// "got the file but cannot open it".
 pub fn open(cache_dir: &Path, url: &str) -> std::result::Result<Result<DllDb>, FetchError> {
-    let unpacked = cache_dir.join(UNPACK_DIR);
+    let unpacked = cache_dir.join(if url == DEFAULT_VENDOR_ARCHIVE {
+        VERIFIED_UNPACK_DIR
+    } else {
+        CUSTOM_UNPACK_DIR
+    });
     // Already unpacked by an earlier run: no network, no extractor needed.
     if let Ok(db) = DllDb::load(&unpacked) {
         return Ok(Ok(db));
@@ -188,6 +227,12 @@ pub fn open(cache_dir: &Path, url: &str) -> std::result::Result<Result<DllDb>, F
 fn classify(url: &str, e: &Error) -> FetchError {
     let detail = tidy(&e.to_string(), url);
     let lower = detail.to_ascii_lowercase();
+    if lower.contains("response exceeds") {
+        return FetchError::Corrupt {
+            url: url.to_string(),
+            detail,
+        };
+    }
     let answered = lower.contains("status code")
         || lower.contains("http status")
         || lower.contains("404")
@@ -233,9 +278,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(ARCHIVE_FILE), b"tiny").unwrap();
         assert!(
-            cached_archive(dir.path()).is_none(),
+            cached_archive(dir.path(), DEFAULT_VENDOR_ARCHIVE).is_none(),
             "a truncated archive must not count as a cache hit"
         );
+    }
+
+    #[test]
+    fn modified_default_archive_fails_digest_gate() {
+        assert!(!archive_digest_matches(
+            b"Rar!\x1a\x07\x01\x00modified",
+            DEFAULT_VENDOR_ARCHIVE
+        ));
+        assert!(archive_digest_matches(
+            b"operator supplied",
+            "https://example.invalid/custom.rar"
+        ));
     }
 
     #[test]

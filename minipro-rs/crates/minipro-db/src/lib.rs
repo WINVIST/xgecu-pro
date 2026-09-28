@@ -599,12 +599,18 @@ impl LogicIc {
 }
 
 fn parse_logic_ic(e: &BytesStart<'_>) -> Result<LogicIc> {
+    let pin_count = attr(e, b"pins")?
+        .map(|s| parse_num(&s))
+        .transpose()?
+        .unwrap_or(0);
+    if pin_count > 48 {
+        return Err(Error::Format(
+            "logic IC pin count exceeds the 48-pin protocol limit".into(),
+        ));
+    }
     Ok(LogicIc {
         names: attr(e, b"name")?.unwrap_or_default(),
-        pin_count: attr(e, b"pins")?
-            .map(|s| parse_num(&s))
-            .transpose()?
-            .unwrap_or(0) as u8,
+        pin_count: pin_count as u8,
         vcc: attr(e, b"voltage")?.map(|s| logic_vcc(&s)).unwrap_or(0),
         vectors: Vec::new(),
         vector_count: 0,
@@ -997,6 +1003,15 @@ mod tests {
         let xml = r#"<infoic><database type="LOGIC">
           <ic name="X" type="5" pins="14" voltage="5"><vector>V1H</vector></ic>
           </database></infoic>"#;
+        assert_eq!(
+            parse_logicic(Cursor::new(xml)).unwrap_err().code(),
+            "format"
+        );
+    }
+
+    #[test]
+    fn parse_logicic_rejects_oversized_pin_count() {
+        let xml = r#"<infoic><database type="LOGIC"><ic name="X" type="5" pins="49" voltage="5"/></database></infoic>"#;
         assert_eq!(
             parse_logicic(Cursor::new(xml)).unwrap_err().code(),
             "format"
