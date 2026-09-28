@@ -21,6 +21,9 @@ silently change programmer protocol behavior.
 
 The source is complete, but this milestone is **not accepted** until the Xcode
 build and the hardware checks below pass on the target Mac.
+GitHub Actions also builds the app on a macOS 26 arm64 runner and runs the Rust
+workspace tests; this catches compiler regressions but does not replace the
+target-Mac and T76 acceptance steps.
 
 ## 2. Mac and T76 acceptance — requires the user's hardware
 
