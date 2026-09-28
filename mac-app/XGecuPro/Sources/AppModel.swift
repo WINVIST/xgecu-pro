@@ -103,13 +103,15 @@ final class AppModel: ObservableObject {
             self.hits = candidates
             if candidates.isEmpty {
                 self.status = "Detected JEDEC ID 0x\(id.uppercased()). No supported SOIC16 chip matches it. Check the chip and adapter placement."
+            } else if candidates.count == 1 {
+                self.selectChip(candidates[0], detectedJEDECID: id)
             } else {
                 self.status = "Detected JEDEC ID 0x\(id.uppercased()). Select the suggested chip to load its database details, then use Read."
             }
         }
     }
 
-    func selectChip(_ chip: String) {
+    func selectChip(_ chip: String, detectedJEDECID: String? = nil) {
         guard !busy else { return }
         selectedChip = chip
         chipDetails = nil
@@ -119,9 +121,13 @@ final class AppModel: ObservableObject {
             if self.chipDetails == nil {
                 self.status = "Error: The chip database returned incomplete details."
             } else if ChipPolicy.isRequestedReadOnly(chip) {
-                self.status = self.canReadSelected
-                    ? "Read-only support is ready for hardware validation. Verify SOIC16 socket placement before inserting the chip."
-                    : "Error: The database entry does not match the expected Macronix capacity and ID."
+                if !self.canReadSelected {
+                    self.status = "Error: The database entry does not match the expected Macronix capacity and ID."
+                } else if let detectedJEDECID {
+                    self.status = "JEDEC ID 0x\(detectedJEDECID.uppercased()) suggests \(chip). Confirm the chip marking and SOIC16 placement before Read."
+                } else {
+                    self.status = "Read-only support is ready for hardware validation. Verify SOIC16 socket placement before inserting the chip."
+                }
             } else {
                 self.status = "Chip details loaded from the database."
             }

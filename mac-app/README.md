@@ -100,9 +100,10 @@ cable acceptance test.
 
 Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
 For either requested Macronix chip in a verified SOIC16 adapter, click
-**Auto Detect SOIC16** and select the suggested database entry. The app probes
-the JEDEC ID but does not enable reading until the selected entry's package,
-capacity, and ID match the supported profile. Alternatively, search for the
+**Auto Detect SOIC16**. For either requested JEDEC ID, the app selects the
+matching database entry and checks its package, capacity, and ID before
+enabling reading. Confirm the chip marking and adapter placement before Read.
+Alternatively, search for the
 chip name and select its exact `@SOIC16` entry. Then use **Read…**. The separate
 **Detect ID** action rechecks the selected chip's ID. **Blank Check** compares
 the entire code region with the

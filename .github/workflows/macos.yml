@@ -56,6 +56,18 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           "$app/Contents/Resources/minipro" --version
 
+      - name: Check requested chips in pinned database
+        run: |
+          helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          search=$("$helper" --json search MX25L51245G --limit 100)
+          printf '%s\n' "$search" | jq -e '.ok == true and (.hits | index("MX25L51245G@SOIC16") != null)'
+          search=$("$helper" --json search MX25L25645G --limit 100)
+          printf '%s\n' "$search" | jq -e '.ok == true and (.hits | index("MX25L25645G@SOIC16") != null)'
+          first=$("$helper" --json describe MX25L51245G@SOIC16)
+          printf '%s\n' "$first" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 67108864 and .page_bytes == 256 and .chip_id == "C2201A"'
+          second=$("$helper" --json describe MX25L25645G@SOIC16)
+          printf '%s\n' "$second" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 33554432 and .page_bytes == 256 and .chip_id == "C22019"'
+
       - name: Package unsigned macOS app
         if: github.ref == 'refs/heads/main'
         run: |
