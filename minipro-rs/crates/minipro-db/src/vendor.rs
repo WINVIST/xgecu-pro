@@ -192,6 +192,19 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
 const VERIFIED_UNPACK_DIR: &str = "xgpro-pinned-v1321";
 const CUSTOM_UNPACK_DIR: &str = "xgpro-custom";
 
+/// A successful extraction keeps the database and removes the archive. Check
+/// this before announcing a download on a later CLI invocation.
+pub fn has_unpacked_database(cache_dir: &Path, url: &str) -> bool {
+    cache_dir
+        .join(if url == DEFAULT_VENDOR_ARCHIVE {
+            VERIFIED_UNPACK_DIR
+        } else {
+            CUSTOM_UNPACK_DIR
+        })
+        .join("InfoICT76.dll")
+        .is_file()
+}
+
 /// Open the default database: an already-unpacked copy if present, otherwise
 /// fetch the vendor archive and unpack it once.
 ///
@@ -272,6 +285,17 @@ fn tidy(detail: &str, url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extracted_database_is_the_cache_hit_after_archive_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!has_unpacked_database(dir.path(), DEFAULT_VENDOR_ARCHIVE));
+        let unpacked = dir.path().join(VERIFIED_UNPACK_DIR);
+        std::fs::create_dir(&unpacked).unwrap();
+        std::fs::write(unpacked.join("InfoICT76.dll"), b"cached").unwrap();
+        assert!(has_unpacked_database(dir.path(), DEFAULT_VENDOR_ARCHIVE));
+        assert!(cached_archive(dir.path(), DEFAULT_VENDOR_ARCHIVE).is_none());
+    }
 
     #[test]
     fn cached_archive_ignores_truncated_files() {

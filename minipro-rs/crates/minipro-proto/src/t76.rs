@@ -82,7 +82,8 @@ const ALG_NAND: u8 = 0x2d;
 const ALG_EMMC: u8 = 0x31;
 
 // SPI algorithm-number high bytes.
-const SPI_DEVICE_16P: u8 = 0x21;
+const SPI_DEVICE_16P_20: u8 = 0x20;
+const SPI_DEVICE_16P_21: u8 = 0x21;
 
 // Bitstream sub-commands + framing.
 const BS_BEGIN: u8 = 0x00;
@@ -202,7 +203,13 @@ pub(crate) fn pack_begin_trans(p: &ChipParams) -> ([u8; 128], usize) {
 /// SPI 25-series NOR read setup. The `0x40`/`0x50` pair differs for 16-pin
 /// parts; all four dwords are load-bearing — drop one and the chip reads zero.
 fn ext_spi_nor(msg: &mut [u8; 128], p: &ChipParams) -> bool {
-    let (f40, f50) = if (p.variant >> 8) as u8 == SPI_DEVICE_16P {
+    // The pinned T76 V13.21 catalog uses both SPI25F20 and SPI25F21 for
+    // SOIC16/SOP16 parts. The 0x20 family includes MX66L1G45G@SOIC16;
+    // treating it as an 8-pin adapter drives the wrong socket setup.
+    let (f40, f50) = if matches!(
+        (p.variant >> 8) as u8,
+        SPI_DEVICE_16P_20 | SPI_DEVICE_16P_21
+    ) {
         (0x0002_0000, 0x0200_0000)
     } else {
         (0x0800_0000, 0x0080_0000)
@@ -2449,6 +2456,20 @@ mod tests {
         assert_eq!(len, 128);
         assert_eq!(&msg[0x40..0x44], &[0x00, 0x00, 0x02, 0x00]); // 0x00020000 LE
         assert_eq!(&msg[0x50..0x54], &[0x00, 0x00, 0x00, 0x02]); // 0x02000000 LE
+
+        // MX66L1G45G@SOIC16 in V13.21: protocol 3, variant 0x2023.
+        let mx66 = ChipParams {
+            protocol_id: ALG_SPI25F_1,
+            variant: 0x2023,
+            raw_voltages: 0x3608,
+            code_memory_size: 134_217_728,
+            page_size: 256,
+            ..Default::default()
+        };
+        let (msg, len) = pack_begin_trans(&mx66);
+        assert_eq!(len, 128);
+        assert_eq!(&msg[0x40..0x44], &[0x00, 0x00, 0x02, 0x00]);
+        assert_eq!(&msg[0x50..0x54], &[0x00, 0x00, 0x00, 0x02]);
     }
 
     #[test]

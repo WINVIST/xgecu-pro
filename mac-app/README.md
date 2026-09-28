@@ -70,6 +70,9 @@ bypass the policy.
 The archive contains the Apple Silicon app and bundled `minipro` helper. It
 does not contain the vendor database or firmware. The app retrieves the pinned
 database source on first use unless you select a local extracted database.
+After that download, later operations use the extracted local cache without
+network access. The application does not redistribute the proprietary vendor
+database or FPGA algorithms.
 GitHub workflow artifacts expire; download a new successful run when needed.
 
 ## Build on the Mac

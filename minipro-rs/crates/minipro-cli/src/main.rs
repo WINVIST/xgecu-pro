@@ -577,7 +577,8 @@ fn load_default_source(rep: &mut dyn Reporter) -> std::result::Result<Box<dyn Ch
         .as_deref()
         .filter(|u| !u.is_empty())
         .unwrap_or(vendor::DEFAULT_VENDOR_ARCHIVE);
-    if vendor::cached_archive(&cache, url).is_none() {
+    if !vendor::has_unpacked_database(&cache, url) && vendor::cached_archive(&cache, url).is_none()
+    {
         rep.event(&Event::Note(
             format!(
                 "fetching the chip database once from {url} (~63 MB, cached at {})",
