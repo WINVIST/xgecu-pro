@@ -12,7 +12,7 @@
 mod reporters;
 mod tui;
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -782,7 +782,7 @@ fn run_read(
     };
 
     let out = format.for_output(file).emit(&verified.image);
-    std::fs::write(file, &out)?;
+    write_output_atomically(file, &out)?;
     rep.finish(&verified.outcome(&dev.name, link));
     Ok(())
 }
@@ -1319,6 +1319,21 @@ fn run_describe(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
 const GUI_IMAGE_LIMIT: usize = 64 << 20;
 const CONVERT_INPUT_LIMIT: u64 = 256 << 20;
 
+/// Keep the prior dump intact if writing the replacement fails or the process
+/// stops before it is complete. A same-directory temporary file also prevents
+/// following a symlink at the selected output path.
+fn write_output_atomically(output: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(output).map_err(|error| error.error)?;
+    Ok(())
+}
+
 fn convert_image(
     input: &Path,
     input_format: Fmt,
@@ -1348,7 +1363,7 @@ fn convert_image(
         return Err(Error::Format("image is empty".into()));
     }
     let bytes = output_format.for_output(output).emit(&image);
-    std::fs::write(output, bytes)?;
+    write_output_atomically(output, &bytes)?;
     Ok(image.bytes.len())
 }
 
@@ -1447,6 +1462,27 @@ mod tests {
             std::fs::remove_file(file).unwrap();
         }
         std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_output_replaces_symlink_without_changing_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let original = directory.path().join("original.bin");
+        let output = directory.path().join("output.bin");
+        std::fs::write(&original, b"saved original").unwrap();
+        symlink(&original, &output).unwrap();
+
+        write_output_atomically(&output, b"new image").unwrap();
+
+        assert_eq!(std::fs::read(&original).unwrap(), b"saved original");
+        assert_eq!(std::fs::read(&output).unwrap(), b"new image");
+        assert!(!std::fs::symlink_metadata(&output)
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     /// `--dry-run` must be opt-in. A default that skipped the write would be a
