@@ -1,7 +1,7 @@
 # XGecu Pro for macOS — implementation plan
 
 Target: MacBook Pro M3, macOS 26.7, XGecu T76. The first milestone is an
-unsigned SwiftUI app built on macOS CI for installation on that Mac; a local
+ad hoc signed SwiftUI app built on macOS CI for installation on that Mac; a local
 source build remains available. Keep the existing Rust CLI as the hardware
 backend and preserve its JSON interface so the GUI cannot
 silently change programmer protocol behavior.
@@ -11,7 +11,7 @@ silently change programmer protocol behavior.
 - Create the fork and track upstream separately.
 - Keep all interface text and project documentation in English.
 - Build the Rust helper from the checked-in lockfile as part of the Xcode app.
-- Publish an unsigned Apple Silicon app archive from successful macOS CI runs
+- Publish an ad hoc signed Apple Silicon app archive from successful macOS CI runs
   so the target Mac can install it without a local Xcode or Rust build.
 - Show programmer identity, search and select chips, detect ID, read, save,
   preview, blank-check, compare with a file, write with dry-run and read-back

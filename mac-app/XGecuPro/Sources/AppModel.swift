@@ -13,7 +13,7 @@ final class AppModel: ObservableObject {
     @Published var selectedChip = ""
     @Published var chipDetails: ChipDetails?
     @Published var deviceStatus = "Programmer not checked"
-    @Published var status = "Connect the T76 through USB 2.0, then click Connect / Refresh."
+    @Published var status = "Connect the T76 with the supplied USB cable, then click Connect / Refresh."
     @Published var busy = false
     @Published var progress: Double?
     @Published var log: [String] = []

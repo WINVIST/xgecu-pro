@@ -1,9 +1,9 @@
 # T76 hardware validation on the target Mac
 
 Use this checklist on the MacBook Pro M3 running macOS 26.7. It records the
-evidence still needed to accept the first usable build. Build the app from the
-[README](README.md) first. Keep the original chip dumps and the completed
-record in a private location.
+evidence still needed to accept the first usable build. Install or build the
+app using the [README](README.md) first. Keep the original chip dumps and the
+completed record in a private location.
 
 ## 1. Check the supplied USB cable
 
