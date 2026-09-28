@@ -138,6 +138,16 @@ fn ascii(bytes: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(s).into_owned())
 }
 
+/// Vendor records pad the model with a variable number of spaces before the
+/// package separator. Use one canonical lookup key for every record.
+fn normalize_chip_name(raw: &str) -> String {
+    if let Some((model, package)) = raw.split_once('@') {
+        format!("{}@{}", model.trim(), package.trim())
+    } else {
+        raw.trim().to_owned()
+    }
+}
+
 /// Native-DLL chip database.
 pub struct DllDb {
     devices: Vec<Device>,
@@ -564,7 +574,7 @@ fn package_details_field(d: &[u8]) -> u32 {
 fn decode_ic(pe: &Pe, ic: usize) -> Option<Device> {
     let d = pe.data.get(ic..ic + IC_STRIDE)?;
     let raw_name = ascii(&d[IC_NAME..IC_NAME + 40])?;
-    let name = raw_name.replace(" @", "@").trim().to_string();
+    let name = normalize_chip_name(&raw_name);
     if name.is_empty() {
         return None;
     }
@@ -620,6 +630,12 @@ fn decode_ic(pe: &Pe, ic: usize) -> Option<Device> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chip_name_normalizes_vendor_padding_before_package() {
+        assert_eq!(normalize_chip_name("MX66L1G45G  @SOIC16"), "MX66L1G45G@SOIC16");
+        assert_eq!(normalize_chip_name("W25Q64BV @SOIC8"), "W25Q64BV@SOIC8");
+    }
 
     #[test]
     fn truncated_optional_header_is_a_format_error() {
