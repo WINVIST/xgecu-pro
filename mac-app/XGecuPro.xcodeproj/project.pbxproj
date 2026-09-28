@@ -62,9 +62,9 @@
    };
    buildConfigurationList = A70000000000000000000001;
    compatibilityVersion = "Xcode 14.0";
-   developmentRegion = ru;
+   developmentRegion = en;
    hasScannedForEncodings = 0;
-   knownRegions = (ru, en, Base);
+   knownRegions = (en, Base);
    mainGroup = A30000000000000000000001;
    productRefGroup = A30000000000000000000003;
    projectDirPath = "";
@@ -107,6 +107,7 @@
     CODE_SIGNING_ALLOWED = NO;
     CURRENT_PROJECT_VERSION = 1;
     GENERATE_INFOPLIST_FILE = YES;
+    INFOPLIST_KEY_CFBundleDevelopmentRegion = en;
     INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
     LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
     MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -125,6 +126,7 @@
     CODE_SIGNING_ALLOWED = NO;
     CURRENT_PROJECT_VERSION = 1;
     GENERATE_INFOPLIST_FILE = YES;
+    INFOPLIST_KEY_CFBundleDevelopmentRegion = en;
     INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
     LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
     MACOSX_DEPLOYMENT_TARGET = 26.0;

@@ -11,8 +11,8 @@ final class AppModel: ObservableObject {
     @Published var query = ""
     @Published var hits: [String] = []
     @Published var selectedChip = ""
-    @Published var deviceStatus = "Программатор не проверен"
-    @Published var status = "Подключите T76 через USB 2.0 и нажмите «Подключить»."
+    @Published var deviceStatus = "Programmer not checked"
+    @Published var status = "Connect the T76 through USB 2.0, then click Connect / Refresh."
     @Published var busy = false
     @Published var progress: Double?
     @Published var log: [String] = []
@@ -49,17 +49,17 @@ final class AppModel: ObservableObject {
     func connect() {
         perform(["info"]) { [weak self] result in
             guard let self else { return }
-            let model = result["model"] as? String ?? "Неизвестная модель"
+            let model = result["model"] as? String ?? "Unknown model"
             let firmware = result["fw"] as? String ?? "?"
             let link = result["link"] as? String ?? "?"
             self.isT76 = model == "T76"
-            self.deviceStatus = "\(model) · прошивка \(firmware) · USB \(link)"
+            self.deviceStatus = "\(model) · firmware \(firmware) · USB \(link)"
             if !self.isT76 {
-                self.status = "Первая версия GUI поддерживает только T76."
+                self.status = "This version of the app supports only the T76."
             } else if link == "ss" {
-                self.status = "T76 на Apple Silicon требует кабель или хаб USB 2.0."
+                self.status = "On Apple Silicon, connect the T76 through a USB 2.0 cable or hub."
             } else {
-                self.status = "T76 подключён. Выберите микросхему."
+                self.status = "T76 connected. Select a chip."
             }
         }
     }
@@ -69,7 +69,7 @@ final class AppModel: ObservableObject {
         guard !text.isEmpty else { return }
         perform(["search", text, "--limit", "100"]) { [weak self] result in
             self?.hits = result["hits"] as? [String] ?? []
-            self?.status = "Найдено: \(result["n"] as? Int ?? 0)."
+            self?.status = "Results: \(result["n"] as? Int ?? 0)."
         }
     }
 
@@ -78,7 +78,7 @@ final class AppModel: ObservableObject {
         perform(["detect", "--like", selectedChip]) { [weak self] result in
             let id = result["id"] as? String ?? "?"
             let matches = result["matches"] as? [String] ?? []
-            self?.status = "ID: 0x\(id). Совпадения: \(matches.prefix(4).joined(separator: ", "))."
+            self?.status = "ID: 0x\(id). Matches: \(matches.prefix(4).joined(separator: ", "))."
         }
     }
 
@@ -93,8 +93,8 @@ final class AppModel: ObservableObject {
             guard self.loadBuffer(url) else { return }
             let stable = result["stable"] as? Bool ?? false
             self.status = stable
-                ? "Дамп сохранён и совпал при повторном чтении."
-                : "Дамп сохранён, но повторное чтение отличается — проверьте контакт и перечитайте чип."
+                ? "Dump saved and confirmed by a second read."
+                : "The dump was saved, but the second read differed. Check the chip contact and read it again."
         }
     }
 
@@ -103,8 +103,8 @@ final class AppModel: ObservableObject {
         perform(["blank", selectedChip]) { [weak self] result in
             let blank = result["blank"] as? Bool ?? false
             self?.status = blank
-                ? "Микросхема пуста: все байты совпали со значением стирания."
-                : "Микросхема не пуста. Перед стиранием сохраните дамп."
+                ? "The chip is blank: every byte has the erased value."
+                : "The chip is not blank. Save a dump before erasing it."
         }
     }
 
@@ -117,13 +117,13 @@ final class AppModel: ObservableObject {
         perform(["verify", selectedChip, url.path]) { [weak self] result in
             guard let self else { return }
             if result["stable"] as? Bool != true {
-                self.status = "Повторные чтения чипа различаются; сравнение ненадёжно. Проверьте контакт."
+                self.status = "Repeated reads differ; verification is unreliable. Check the chip contact."
             } else if result["matches"] as? Bool == true {
-                self.status = "Содержимое чипа совпадает с файлом."
+                self.status = "Chip contents match the file."
             } else if let offset = result["first_mismatch"] as? Int {
-                self.status = String(format: "Различие с файлом по адресу 0x%06X.", offset)
+                self.status = String(format: "The chip differs from the file at address 0x%06X.", offset)
             } else {
-                self.status = "Содержимое чипа не совпадает с файлом."
+                self.status = "Chip contents do not match the file."
             }
         }
     }
@@ -139,13 +139,13 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "Записать \(self.selectedChip)?"
-            alert.informativeText = "Подготовка прошла успешно. Содержимое микросхемы будет изменено; для стираемых чипов перед записью выполняется стирание. Исходный дамп рекомендуется сохранить."
-            alert.addButton(withTitle: "Записать и проверить")
-            alert.addButton(withTitle: "Отмена")
+            alert.messageText = "Program \(self.selectedChip)?"
+            alert.informativeText = "Preflight passed. This will change the chip contents; erasable chips are erased before programming. Save the original dump first."
+            alert.addButton(withTitle: "Program and Verify")
+            alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             self.perform(["write", self.selectedChip, url.path]) { [weak self] _ in
-                self?.status = "Запись завершена; данные проверены обратным чтением."
+                self?.status = "Programming completed and verified by a readback."
             }
         }
     }
@@ -154,13 +154,13 @@ final class AppModel: ObservableObject {
         guard readyForMutation else { return }
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "Стереть \(selectedChip)?"
-        alert.informativeText = "Все данные на микросхеме будут удалены. Сначала сохраните дамп."
-        alert.addButton(withTitle: "Стереть")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = "Erase \(selectedChip)?"
+        alert.informativeText = "All data on the chip will be erased. Save a dump first."
+        alert.addButton(withTitle: "Erase")
+        alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         perform(["erase", selectedChip]) { [weak self] _ in
-            self?.status = "Стирание завершено."
+            self?.status = "Erase completed."
         }
     }
 
@@ -170,7 +170,7 @@ final class AppModel: ObservableObject {
         panel.canChooseDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         databasePath = url.path
-        status = "Выбрана локальная база: \(url.lastPathComponent)."
+        status = "Local database selected: \(url.lastPathComponent)."
     }
 
     func openBuffer() {
@@ -191,9 +191,9 @@ final class AppModel: ObservableObject {
             try buffer.write(to: url, options: .atomic)
             lastFile = url
             bufferDirty = false
-            status = "Буфер сохранён: \(url.lastPathComponent)."
+            status = "Buffer saved: \(url.lastPathComponent)."
         } catch {
-            status = "Не удалось сохранить буфер: \(error.localizedDescription)"
+            status = "Error: Could not save the buffer (\(englishErrorDetails(error)))."
         }
     }
 
@@ -207,15 +207,15 @@ final class AppModel: ObservableObject {
             let other = try readBoundedFile(url)
             let common = min(buffer.count, other.count)
             if buffer == other {
-                status = "Буфер полностью совпадает с \(url.lastPathComponent)."
+                status = "The buffer matches \(url.lastPathComponent) byte for byte."
             } else {
                 let mismatch = zip(buffer.prefix(common), other.prefix(common))
                     .enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset ?? common
-                status = String(format: "Различие с %@ по адресу 0x%X (размеры: %d и %d байт).",
+                status = String(format: "Difference from %@ at address 0x%X (sizes: %d and %d bytes).",
                                 url.lastPathComponent, mismatch, buffer.count, other.count)
             }
         } catch {
-            status = "Не удалось сравнить файлы: \(error.localizedDescription)"
+            status = "Error: Could not compare the files (\(englishErrorDetails(error)))."
         }
     }
 
@@ -238,7 +238,7 @@ final class AppModel: ObservableObject {
     func jumpToAddress() {
         guard bufferSize > 0 else { return }
         guard let address = parseHexNumber(addressText), address >= 0, address < bufferSize else {
-            status = "Адрес вне буфера. Введите шестнадцатеричное смещение."
+            status = "Error: Address is outside the buffer. Enter a hexadecimal offset."
             return
         }
         bufferOffset = (address / pageBytes) * pageBytes
@@ -253,7 +253,7 @@ final class AppModel: ObservableObject {
             .replacingOccurrences(of: "0x", with: "", options: .caseInsensitive)
         guard !cleaned.isEmpty, cleaned.count <= 512, cleaned.count.isMultiple(of: 2),
               cleaned.allSatisfy({ $0.isHexDigit }) else {
-            status = "Введите от 1 до 256 байт в виде HEX, например DE AD BE EF."
+            status = "Error: Enter 1 to 256 HEX bytes, for example DE AD BE EF."
             return
         }
         let chars = Array(cleaned)
@@ -261,14 +261,14 @@ final class AppModel: ObservableObject {
             UInt8(String(chars[$0...($0 + 1)]), radix: 16)
         })
         guard needle.count == chars.count / 2 else {
-            status = "Некорректная HEX-последовательность."
+            status = "Error: Invalid HEX byte sequence."
             return
         }
         let start = min(bufferSize, lastSearch == needle ? (lastFoundOffset ?? bufferOffset) + 1 : bufferOffset)
         let match = buffer.range(of: needle, in: start..<bufferSize)
             ?? buffer.range(of: needle, in: 0..<start)
         guard let match else {
-            status = "Последовательность не найдена."
+            status = "Byte sequence not found."
             return
         }
         bufferOffset = (match.lowerBound / pageBytes) * pageBytes
@@ -276,7 +276,7 @@ final class AppModel: ObservableObject {
         lastFoundOffset = match.lowerBound
         addressText = String(match.lowerBound, radix: 16).uppercased()
         renderPage()
-        status = String(format: "Найдено по адресу 0x%X.", match.lowerBound)
+        status = String(format: "Found at address 0x%X.", match.lowerBound)
     }
 
     func fillRange() {
@@ -285,14 +285,14 @@ final class AppModel: ObservableObject {
               let end = parseHexNumber(fillEndText),
               let value = parseHexNumber(fillByteText),
               start >= 0, start <= end, end < bufferSize, value >= 0, value <= 0xFF else {
-            status = "Укажите корректный диапазон адресов и байт заполнения в HEX."
+            status = "Error: Enter a valid HEX address range and fill byte."
             return
         }
         let alert = NSAlert()
-        alert.messageText = "Заполнить диапазон буфера?"
-        alert.informativeText = String(format: "Адреса 0x%X…0x%X будут заменены на 0x%02X. Изменение пока не записывается в чип.", start, end, value)
-        alert.addButton(withTitle: "Заполнить")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = "Fill the buffer range?"
+        alert.informativeText = String(format: "Addresses 0x%X…0x%X will be set to 0x%02X. This does not program the chip.", start, end, value)
+        alert.addButton(withTitle: "Fill")
+        alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         buffer.replaceSubrange(start...end, with: Data(repeating: UInt8(value), count: end - start + 1))
         bufferDirty = true
@@ -301,7 +301,7 @@ final class AppModel: ObservableObject {
         bufferOffset = (start / pageBytes) * pageBytes
         addressText = String(start, radix: 16).uppercased()
         renderPage()
-        status = "Буфер изменён. Сохраните его перед записью."
+        status = "Buffer modified. Save it before programming."
     }
 
     private func parseHexNumber(_ input: String) -> Int? {
@@ -314,17 +314,17 @@ final class AppModel: ObservableObject {
         guard bufferDirty else { return true }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "В буфере есть несохранённые изменения"
-        alert.informativeText = "При загрузке другого дампа изменения будут потеряны."
-        alert.addButton(withTitle: "Продолжить без сохранения")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = "The buffer has unsaved changes"
+        alert.informativeText = "Loading another dump will discard those changes."
+        alert.addButton(withTitle: "Discard Changes")
+        alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     private var readyForChipOperation: Bool {
         guard !busy, isT76, !selectedChip.isEmpty else { return false }
         if !canReadSelected {
-            status = "В первой версии доступны аппаратно проверенные AT27C256R, MX27C2000, W27C512 и W27C257."
+            status = "Error: This version supports hardware-tested AT27C256R, MX27C2000, W27C512, and W27C257 parts only."
             return false
         }
         return true
@@ -333,7 +333,7 @@ final class AppModel: ObservableObject {
     private var readyForMutation: Bool {
         guard readyForChipOperation else { return false }
         if !canWriteSelected {
-            status = "В первой версии запись и стирание доступны для W27C512 и W27C257."
+            status = "Error: Programming and erase are available only for W27C512 and W27C257."
             return false
         }
         return true
@@ -343,7 +343,7 @@ final class AppModel: ObservableObject {
         guard !busy else { return }
         busy = true
         progress = nil
-        status = "Выполняется: \(arguments.first ?? "операция")…"
+        status = "Running: \(arguments.first ?? "operation")…"
         runner.run(arguments, databasePath: databasePath, onEvent: { [weak self] event in
             guard let self else { return }
             if let value = event["progress"] as? [String: Any],
@@ -353,7 +353,7 @@ final class AppModel: ObservableObject {
             } else if let note = event["note"] as? String {
                 self.log.append(note)
             } else if event["warn"] != nil {
-                self.log.append("Предупреждение: \(event)")
+                self.log.append("Warning: \(event)")
             }
         }, completion: { [weak self] result in
             guard let self else { return }
@@ -363,8 +363,9 @@ final class AppModel: ObservableObject {
             case .success(let value):
                 success(value)
             case .failure(let error):
-                self.status = error.localizedDescription
-                self.log.append(error.localizedDescription)
+                let message = self.englishErrorDetails(error)
+                self.status = "Error: \(message)"
+                self.log.append(message)
             }
         })
     }
@@ -383,10 +384,10 @@ final class AppModel: ObservableObject {
             lastFile = url
             updateChecksum()
             renderPage()
-            status = "Дамп загружен: \(url.lastPathComponent), \(bytes.count) байт."
+            status = "Dump loaded: \(url.lastPathComponent), \(bytes.count) bytes."
             return true
         } catch {
-            status = "Не удалось прочитать дамп: \(error.localizedDescription)"
+            status = "Error: Could not read the dump (\(englishErrorDetails(error)))."
             return false
         }
     }
@@ -410,8 +411,19 @@ final class AppModel: ObservableObject {
         case invalidSize
 
         var errorDescription: String? {
-            "Размер дампа должен быть от 1 байта до 64 МиБ."
+            "The dump must be between 1 byte and 64 MiB."
         }
+    }
+
+    private func englishErrorDetails(_ error: Error) -> String {
+        if let failure = error as? MiniProFailure {
+            return failure.errorDescription ?? "minipro failed"
+        }
+        if let failure = error as? BufferError {
+            return failure.errorDescription ?? "Invalid buffer"
+        }
+        let value = error as NSError
+        return "\(value.domain), code \(value.code)"
     }
 
     private func updateChecksum() {

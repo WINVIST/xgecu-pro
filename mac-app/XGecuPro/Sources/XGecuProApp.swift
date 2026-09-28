@@ -18,19 +18,19 @@ private struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             VStack(alignment: .leading, spacing: 14) {
-                GroupBox("Программатор") {
+                GroupBox("Programmer") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(model.deviceStatus).font(.callout)
-                        Button("Подключить / обновить") { model.connect() }
+                        Button("Connect / Refresh") { model.connect() }
                             .disabled(model.busy)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 HStack {
-                    TextField("Поиск микросхемы", text: $model.query)
+                    TextField("Search for a chip", text: $model.query)
                         .onSubmit { model.search() }
-                    Button("Найти") { model.search() }
+                    Button("Search") { model.search() }
                         .disabled(model.busy || model.query.isEmpty)
                 }
                 List(model.hits, id: \.self) { chip in
@@ -43,32 +43,32 @@ private struct ContentView: View {
                     .buttonStyle(.plain)
                     .listRowBackground(model.selectedChip == chip ? Color.accentColor.opacity(0.15) : Color.clear)
                 }
-                Text("База: " + (model.databasePath.isEmpty ? "автоматическая" : model.databasePath))
+                Text("Database: " + (model.databasePath.isEmpty ? "automatic" : model.databasePath))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
-                Button("Выбрать локальную базу…") { model.chooseDatabase() }
+                Button("Choose Local Database…") { model.chooseDatabase() }
                     .disabled(model.busy)
             }
             .padding()
-            .navigationTitle("Микросхемы")
+            .navigationTitle("Chips")
             .frame(minWidth: 300)
         } detail: {
             VStack(alignment: .leading, spacing: 18) {
-                Text(model.selectedChip.isEmpty ? "Выберите микросхему" : model.selectedChip)
+                Text(model.selectedChip.isEmpty ? "Select a chip" : model.selectedChip)
                     .font(.title2.bold())
                 HStack {
-                    Button("Определить ID") { model.detect() }
+                    Button("Detect ID") { model.detect() }
                         .disabled(!model.canReadSelected)
-                    Button("Прочитать…") { model.readChip() }
+                    Button("Read…") { model.readChip() }
                         .disabled(!model.canReadSelected)
-                    Button("Проверить пустоту") { model.blankCheck() }
+                    Button("Blank Check") { model.blankCheck() }
                         .disabled(!model.canReadSelected)
-                    Button("Сравнить с файлом…") { model.verifyChip() }
+                    Button("Verify Against File…") { model.verifyChip() }
                         .disabled(!model.canReadSelected)
-                    Button("Записать…") { model.writeChip() }
+                    Button("Program…") { model.writeChip() }
                         .disabled(!model.canWriteSelected)
-                    Button("Стереть") { model.eraseChip() }
+                    Button("Erase") { model.eraseChip() }
                         .disabled(!model.canWriteSelected)
                 }
                 .disabled(model.busy || !model.isT76 || model.selectedChip.isEmpty)
@@ -78,24 +78,24 @@ private struct ContentView: View {
                     } else {
                         ProgressView()
                     }
-                    Text("Дождитесь завершения операции; питание сокета отключается после неё.")
+                    Text("Wait for the operation to finish; socket power is turned off afterward.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Text(model.status)
-                    .foregroundColor(model.status.contains("ошиб") ? .red : .primary)
+                    .foregroundColor(model.status.hasPrefix("Error:") ? .red : .primary)
                     .textSelection(.enabled)
                 TabView {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Button("Открыть файл…") { model.openBuffer() }
+                            Button("Open File…") { model.openBuffer() }
                                 .disabled(model.busy)
-                            Button("Сохранить как…") { model.saveBuffer() }
+                            Button("Save As…") { model.saveBuffer() }
                                 .disabled(model.busy || model.bufferSize == 0)
-                            Button("Сравнить с файлом…") { model.compareBufferToFile() }
+                            Button("Compare with File…") { model.compareBufferToFile() }
                                 .disabled(model.busy || model.bufferSize == 0)
                             Spacer()
-                            Text(model.bufferSize == 0 ? "Буфер пуст" : "\(model.bufferSize) байт" + (model.bufferDirty ? " · изменён" : ""))
+                            Text(model.bufferSize == 0 ? "Buffer empty" : "\(model.bufferSize) bytes" + (model.bufferDirty ? " · modified" : ""))
                                 .foregroundStyle(.secondary)
                         }
                         if model.bufferSize > 0 {
@@ -109,30 +109,30 @@ private struct ContentView: View {
                                 .disabled(model.bufferOffset == 0)
                             Button("›") { model.nextPage() }
                                 .disabled(model.bufferOffset + 256 >= model.bufferSize)
-                            Text("Адрес HEX")
+                            Text("HEX address")
                             TextField("0", text: $model.addressText)
                                 .frame(width: 90)
                                 .onSubmit { model.jumpToAddress() }
-                            Button("Перейти") { model.jumpToAddress() }
+                            Button("Go") { model.jumpToAddress() }
                             Spacer()
-                            TextField("Найти байты HEX", text: $model.findText)
+                            TextField("Find HEX bytes", text: $model.findText)
                                 .frame(width: 170)
                                 .onSubmit { model.findHex() }
-                            Button("Найти") { model.findHex() }
+                            Button("Find") { model.findHex() }
                         }
                         .disabled(model.busy || model.bufferSize == 0)
                         HStack {
-                            Text("Заполнить 0x")
-                            TextField("начало", text: $model.fillStartText).frame(width: 80)
+                            Text("Fill 0x")
+                            TextField("start", text: $model.fillStartText).frame(width: 80)
                             Text("…0x")
-                            TextField("конец", text: $model.fillEndText).frame(width: 80)
-                            Text("значением 0x")
+                            TextField("end", text: $model.fillEndText).frame(width: 80)
+                            Text("with 0x")
                             TextField("FF", text: $model.fillByteText).frame(width: 46)
-                            Button("Применить…") { model.fillRange() }
+                            Button("Apply…") { model.fillRange() }
                         }
                         .disabled(model.busy || model.bufferSize == 0)
                         ScrollView {
-                            Text(model.hexPreview.isEmpty ? "Прочитайте микросхему или откройте файл дампа." : model.hexPreview)
+                            Text(model.hexPreview.isEmpty ? "Read a chip or open a dump file." : model.hexPreview)
                                 .font(.system(.body, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding()
@@ -141,16 +141,16 @@ private struct ContentView: View {
                     }
                     .tabItem { Text("Hex") }
                     ScrollView {
-                        Text(model.log.isEmpty ? "Событий пока нет." : model.log.joined(separator: "\n"))
+                        Text(model.log.isEmpty ? "No events yet." : model.log.joined(separator: "\n"))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                             .textSelection(.enabled)
                     }
-                    .tabItem { Text("Журнал") }
+                    .tabItem { Text("Log") }
                 }
             }
             .padding(22)
-            .navigationTitle("Операции T76")
+            .navigationTitle("T76 Operations")
         }
     }
 }

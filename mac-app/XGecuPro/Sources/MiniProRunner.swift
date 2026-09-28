@@ -21,8 +21,8 @@ final class MiniProRunner {
         guard let executable = Bundle.main.resourceURL?.appendingPathComponent("minipro"),
               FileManager.default.isExecutableFile(atPath: executable.path) else {
             completion(.failure(MiniProFailure(
-                message: "В приложении отсутствует minipro.",
-                hint: "Пересоберите проект в Xcode: фаза сборки должна добавить Rust-помощник."
+                message: "The bundled minipro executable is missing.",
+                hint: "Rebuild the project in Xcode so the build phase can add the Rust helper."
             )))
             return
         }
@@ -80,8 +80,8 @@ final class MiniProRunner {
             DispatchQueue.main.async {
                 guard let result else {
                     completion(.failure(MiniProFailure(
-                        message: "minipro не вернул JSON-результат.",
-                        hint: "Код завершения: \(process.terminationStatus)."
+                        message: "minipro did not return a JSON result.",
+                        hint: "Exit status: \(process.terminationStatus)."
                     )))
                     return
                 }
@@ -89,7 +89,7 @@ final class MiniProRunner {
                     completion(.success(result))
                 } else {
                     completion(.failure(MiniProFailure(
-                        message: result["msg"] as? String ?? "Операция minipro завершилась с ошибкой.",
+                        message: result["msg"] as? String ?? "The minipro operation failed.",
                         hint: result["hint"] as? String
                     )))
                 }

@@ -2,6 +2,7 @@
 
 Native SwiftUI frontend for the existing Rust `minipro` CLI. The first version
 targets an Apple Silicon Mac running macOS 26.7 and an XGecu T76.
+All app text and project documentation are in English.
 The staged implementation and hardware acceptance plan is in
 [ROADMAP.md](ROADMAP.md).
 
@@ -35,17 +36,17 @@ in the app to work offline.
 ## Use
 
 Connect the T76 through a USB 2.0 cable or hub on Apple Silicon. Click
-**Подключить**, search for a chip, select it, and use **Определить ID** or
-**Прочитать**. **Проверить пустоту** compares the entire code region with the
-chip's erased value. **Сравнить с файлом** reads the chip twice and compares
+**Connect / Refresh**, search for a chip, select it, and use **Detect ID** or
+**Read…**. **Blank Check** compares the entire code region with the
+chip's erased value. **Verify Against File…** reads the chip twice and compares
 the result with a selected raw, Intel HEX, or S-record image. A short image is
 padded with the chip's erased value through its full code region. Reads are repeated
 by the Rust backend; the app marks an
 unstable result and opens the saved dump in a paged hex buffer. The buffer can
 also open local files, jump to a hex address, find a byte sequence, and fill an
 inclusive address range with one byte. It accepts raw files up to 64 MiB. Save
-edited buffers with **Сохранить как…** before choosing a file to program; the
-**Записать…** action programs the file selected in its dialog, not unsaved buffer
+edited buffers with **Save As…** before choosing a file to program; the
+**Program…** action programs the file selected in its dialog, not unsaved buffer
 changes. The app shows the buffer's SHA-256 digest and compares it byte for byte
 with another local file, reporting the first differing address or a size
 difference. The app asks before discarding unsaved changes on a new read or open.

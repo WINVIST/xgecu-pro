@@ -8,6 +8,7 @@ silently change programmer protocol behavior.
 ## 1. First usable build — implemented in source
 
 - Create the fork and track upstream separately.
+- Keep all interface text and project documentation in English.
 - Build the Rust helper from the checked-in lockfile as part of the Xcode app.
 - Show programmer identity, search and select chips, detect ID, read, save,
   preview, blank-check, compare with a file, write with dry-run and read-back
