@@ -111,7 +111,9 @@ chip's erased value. Selecting a chip also shows its database package, pin
 count, memory region sizes, page size, expected electronic ID, and erased value
 without connecting the programmer. The package label is not a socket placement
 guide; check the programmer's verified placement instructions before seating a
-part. **Verify Against File…** reads the chip twice and compares
+part. Search covers the vendor database, including parts for which this build
+does not enable hardware operations. **Verify Against File…** reads the chip
+twice and compares
 the result with a selected raw, Intel HEX, or S-record image. A short image is
 padded with the chip's erased value through its full code region. Reads are repeated
 by the Rust backend; the app marks an

@@ -128,6 +128,10 @@ final class AppModel: ObservableObject {
                 } else {
                     self.status = "Read-only support is ready for hardware validation. Verify SOIC16 socket placement before inserting the chip."
                 }
+            } else if !self.isT76 {
+                self.status = "Chip details loaded. Click Connect / Refresh to check the T76 before chip operations."
+            } else if !self.canReadSelected {
+                self.status = "Chip details loaded, but this model is not enabled for hardware operations in this build."
             } else {
                 self.status = "Chip details loaded from the database."
             }
