@@ -148,11 +148,11 @@ final class AppModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         perform(["read", selectedChip, url.path]) { [weak self] result in
             guard let self else { return }
-            guard self.loadBuffer(url) else { return }
             let stable = result["stable"] as? Bool ?? false
-            self.status = stable
+            let message = stable
                 ? "Dump saved and confirmed by a second read."
                 : "The dump was saved, but the second read differed. Check the chip contact and read it again."
+            self.openImage(url, successStatus: message)
         }
     }
 
@@ -240,7 +240,7 @@ final class AppModel: ObservableObject {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        _ = loadBuffer(url)
+        openImage(url)
     }
 
     func saveBuffer() {
@@ -249,11 +249,23 @@ final class AppModel: ObservableObject {
         panel.nameFieldStringValue = lastFile?.lastPathComponent ?? "buffer.bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try buffer.bytes.write(to: url, options: .atomic)
-            lastFile = url
-            cleanSHA256 = bufferSHA256
-            bufferDirty = false
-            status = "Buffer saved: \(url.lastPathComponent)."
+            let directory = try makePrivateTemporaryDirectory()
+            let raw = directory.appendingPathComponent("buffer.bin")
+            guard FileManager.default.createFile(atPath: raw.path, contents: buffer.bytes,
+                                                 attributes: [.posixPermissions: 0o600]) else {
+                try? FileManager.default.removeItem(at: directory)
+                status = "Error: Could not prepare the buffer for saving."
+                return
+            }
+            perform(["convert", raw.path, url.path], cleanup: {
+                try? FileManager.default.removeItem(at: directory)
+            }) { [weak self] _ in
+                guard let self else { return }
+                self.lastFile = url
+                self.cleanSHA256 = self.bufferSHA256
+                self.bufferDirty = false
+                self.status = "Buffer saved: \(url.lastPathComponent)."
+            }
         } catch {
             status = "Error: Could not save the buffer (\(englishErrorDetails(error)))."
         }
@@ -266,18 +278,33 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            let other = try readBoundedFile(url)
-            let common = min(buffer.bytes.count, other.count)
-            if buffer.bytes == other {
-                status = "The buffer matches \(url.lastPathComponent) byte for byte."
-            } else {
-                let mismatch = zip(buffer.bytes.prefix(common), other.prefix(common))
-                    .enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset ?? common
-                status = String(format: "Difference from %@ at address 0x%X (sizes: %d and %d bytes).",
-                                url.lastPathComponent, mismatch, buffer.bytes.count, other.count)
+            let directory = try makePrivateTemporaryDirectory()
+            let raw = directory.appendingPathComponent("comparison.bin")
+            perform(["convert", url.path, raw.path], cleanup: {
+                try? FileManager.default.removeItem(at: directory)
+            }) { [weak self] _ in
+                guard let self else { return }
+                do {
+                    let other = try self.readBoundedFile(raw)
+                    self.compareBuffer(other, named: url.lastPathComponent)
+                } catch {
+                    self.status = "Error: Could not compare the files (\(self.englishErrorDetails(error)))."
+                }
             }
         } catch {
             status = "Error: Could not compare the files (\(englishErrorDetails(error)))."
+        }
+    }
+
+    private func compareBuffer(_ other: Data, named name: String) {
+        let common = min(buffer.bytes.count, other.count)
+        if buffer.bytes == other {
+            status = "The buffer matches \(name) byte for byte."
+        } else {
+            let mismatch = zip(buffer.bytes.prefix(common), other.prefix(common))
+                .enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset ?? common
+            status = String(format: "Difference from %@ at address 0x%X (sizes: %d and %d bytes).",
+                            name, mismatch, buffer.bytes.count, other.count)
         }
     }
 
@@ -508,8 +535,9 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    private func perform(_ arguments: [String], success: @escaping ([String: Any]) -> Void) {
-        guard !busy else { return }
+    private func perform(_ arguments: [String], cleanup: (() -> Void)? = nil,
+                         success: @escaping ([String: Any]) -> Void) {
+        guard !busy else { cleanup?(); return }
         busy = true
         progress = nil
         status = "Running: \(arguments.first ?? "operation")…"
@@ -525,6 +553,7 @@ final class AppModel: ObservableObject {
                 self.log.append("Warning: \(event)")
             }
         }, completion: { [weak self] result in
+            defer { cleanup?() }
             guard let self else { return }
             self.busy = false
             self.progress = nil
@@ -537,6 +566,34 @@ final class AppModel: ObservableObject {
                 self.log.append(message)
             }
         })
+    }
+
+    private func makePrivateTemporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xgecu-pro-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        return directory
+    }
+
+    private func openImage(_ url: URL, successStatus: String? = nil) {
+        do {
+            let directory = try makePrivateTemporaryDirectory()
+            let raw = directory.appendingPathComponent("image.bin")
+            perform(["convert", url.path, raw.path], cleanup: {
+                try? FileManager.default.removeItem(at: directory)
+            }) { [weak self] _ in
+                guard let self, self.loadBuffer(raw) else { return }
+                self.lastFile = url
+                if let successStatus {
+                    self.status = successStatus
+                } else {
+                    self.status = "Image loaded: \(url.lastPathComponent), \(self.bufferSize) bytes."
+                }
+            }
+        } catch {
+            status = "Error: Could not open the image (\(englishErrorDetails(error)))."
+        }
     }
 
     @discardableResult

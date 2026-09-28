@@ -50,8 +50,11 @@ the result with a selected raw, Intel HEX, or S-record image. A short image is
 padded with the chip's erased value through its full code region. Reads are repeated
 by the Rust backend; the app marks an
 unstable result and opens the saved dump in a paged hex buffer. The buffer can
-also open local files, jump to a hex address, find a byte sequence, and fill an
-inclusive address range with one byte. It accepts raw files up to 64 MiB. Save
+also open local raw, Intel HEX, and Motorola S-record files, jump to a hex
+address, find a byte sequence, and fill an inclusive address range with one
+byte. Address gaps in HEX and S-record files are filled with `0xFF`. The image
+limit is 64 MiB; text image inputs are limited to 256 MiB on disk. **Save As…**
+chooses raw, Intel HEX, or S-record output from the file extension. Save
 edited buffers with **Save As…** before choosing a file to program; the
 **Program…** action programs the file selected in its dialog, not unsaved buffer
 changes. The app shows the buffer's SHA-256 digest and compares it byte for byte

@@ -39,20 +39,21 @@ target-Mac and T76 acceptance steps.
 5. Record the Mac model, macOS/Xcode/Rust versions, T76 firmware, database
    version, part and package, USB link, and results for reproducibility.
 
-## 3. Closer parity with the original application
+## 3. Optional features — implement after the user selects them
 
 - Implemented in source: paged full-image hex buffer (64 MiB limit), file
-  open/save, address jump, HEX and ASCII search, per-byte editing, range fill,
+  open/save for raw, Intel HEX, and S-record images, address jump, HEX and ASCII
+  search, per-byte editing, range fill,
   block copy/export, undo/redo, SHA-256, and offline byte-for-byte file
   comparison. Buffer edits have Swift package tests in CI.
 - Implemented in source: read-only chip database details for package, pin
   count, memory sizes, page size, electronic ID, and erased value.
-- Add fuse/config/lock operations, multi-region memories, and
-  package/socket diagrams when their CLI path and chip metadata are verified.
+- Fuse/config/lock operations, multi-region memories, and package/socket
+  diagrams after their CLI path and chip metadata are verified.
 - Expand the supported T76 chip list one class at a time after hardware tests;
-  add NAND/eMMC only with the proper adapters and recovery checks.
-- Add diagnostics, batch workflows, and optional local release packaging after
-  the core flows are reliable. Broader programmer families require their own
+  NAND/eMMC require the proper adapters and recovery checks.
+- Diagnostics, batch workflows, and optional local release packaging after the
+  core flows are reliable. Broader programmer families require their own
   hardware acceptance.
 
 Keep feature scope and tested chip families in [README.md](README.md). The

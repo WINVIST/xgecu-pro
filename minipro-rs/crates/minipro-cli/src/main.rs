@@ -196,6 +196,19 @@ enum Command {
         /// Exact chip name from `search`, e.g. "W27C512@DIP28"
         chip: String,
     },
+    /// Convert a bounded memory image between raw, Intel HEX, and S-record
+    Convert {
+        /// Input image file
+        input: PathBuf,
+        /// Output image file
+        output: PathBuf,
+        /// Input format (default: by extension, else sniffed)
+        #[arg(long, value_enum, default_value_t = Fmt::Auto)]
+        input_format: Fmt,
+        /// Output format (default: by extension)
+        #[arg(long, value_enum, default_value_t = Fmt::Auto)]
+        output_format: Fmt,
+    },
     /// Interactive terminal UI (chip browser, ZIF contact map, hex view)
     Tui,
     /// Read the seated chip's electronic id and match it in the database.
@@ -245,6 +258,7 @@ impl Command {
             Command::Info => "info",
             Command::Search { .. } => "search",
             Command::Describe { .. } => "describe",
+            Command::Convert { .. } => "convert",
             Command::Tui => "tui",
             Command::Detect { .. } => "detect",
             Command::Logic { .. } => "logic",
@@ -376,6 +390,12 @@ fn main() -> ExitCode {
         Command::Tui => tui::run(cli.db.clone()),
         Command::Search { query, limit } => run_search(db_dir, query, *limit, mode),
         Command::Describe { chip } => run_describe(db_dir, chip, mode),
+        Command::Convert {
+            input,
+            output,
+            input_format,
+            output_format,
+        } => run_convert(input, output, *input_format, *output_format, mode),
         Command::Read {
             chip,
             file,
@@ -1295,6 +1315,54 @@ fn run_describe(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
     Ok(())
 }
 
+const GUI_IMAGE_LIMIT: usize = 64 << 20;
+const CONVERT_INPUT_LIMIT: u64 = 256 << 20;
+
+fn convert_image(
+    input: &Path,
+    input_format: Fmt,
+    output: &Path,
+    output_format: Fmt,
+) -> Result<usize> {
+    if std::fs::metadata(input)?.len() > CONVERT_INPUT_LIMIT {
+        return Err(Error::Format(
+            "image file exceeds the 256 MiB input limit".into(),
+        ));
+    }
+    let source = std::fs::read(input)?;
+    let image = input_format.for_input(input, &source).parse_with_limit(
+        &source,
+        minipro_core::format::PAD,
+        GUI_IMAGE_LIMIT,
+    )?;
+    if image.bytes.is_empty() {
+        return Err(Error::Format("image is empty".into()));
+    }
+    let bytes = output_format.for_output(output).emit(&image);
+    std::fs::write(output, bytes)?;
+    Ok(image.bytes.len())
+}
+
+fn run_convert(
+    input: &Path,
+    output: &Path,
+    input_format: Fmt,
+    output_format: Fmt,
+    mode: Mode,
+) -> Result<()> {
+    let n = convert_image(input, input_format, output, output_format)?;
+    match mode {
+        Mode::Json => println!(
+            "{}",
+            serde_json::json!({"op":"convert", "ok":true, "bytes":n})
+        ),
+        Mode::Human | Mode::Tui => {
+            anstream::println!("Converted {n} image bytes to {}", output.display())
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1338,6 +1406,38 @@ mod tests {
             ..dev
         };
         assert!(describe_value(&without_id)["chip_id"].is_null());
+    }
+
+    #[test]
+    fn convert_roundtrips_formats_and_preserves_output_on_parse_error() {
+        let dir = std::env::temp_dir().join(format!("minipro-convert-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = dir.join("source.bin");
+        let hex = dir.join("image.hex");
+        let srec = dir.join("image.s19");
+        let back = dir.join("back.bin");
+        std::fs::write(&raw, [0x12, 0x34, 0xFF, 0x00]).unwrap();
+        assert_eq!(convert_image(&raw, Fmt::Auto, &hex, Fmt::Auto).unwrap(), 4);
+        assert_eq!(convert_image(&hex, Fmt::Auto, &srec, Fmt::Auto).unwrap(), 4);
+        assert_eq!(
+            convert_image(&srec, Fmt::Auto, &back, Fmt::Auto).unwrap(),
+            4
+        );
+        assert_eq!(std::fs::read(&back).unwrap(), [0x12, 0x34, 0xFF, 0x00]);
+        std::fs::write(&hex, b":0100000012FF\n").unwrap(); // bad checksum
+        assert!(convert_image(&hex, Fmt::Auto, &back, Fmt::Auto).is_err());
+        assert_eq!(std::fs::read(&back).unwrap(), [0x12, 0x34, 0xFF, 0x00]);
+        let oversized = dir.join("oversized.bin");
+        std::fs::File::create(&oversized)
+            .unwrap()
+            .set_len(CONVERT_INPUT_LIMIT + 1)
+            .unwrap();
+        assert!(convert_image(&oversized, Fmt::Auto, &back, Fmt::Auto).is_err());
+        assert_eq!(std::fs::read(&back).unwrap(), [0x12, 0x34, 0xFF, 0x00]);
+        for file in [raw, hex, srec, back, oversized] {
+            std::fs::remove_file(file).unwrap();
+        }
+        std::fs::remove_dir(dir).unwrap();
     }
 
     /// `--dry-run` must be opt-in. A default that skipped the write would be a

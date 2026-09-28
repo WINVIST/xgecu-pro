@@ -49,8 +49,8 @@ impl Format {
         }
     }
 
-    /// Sniff the content: first non-whitespace byte `:`→IHex, `S`→SRec, else
-    /// Raw. Lets a mislabeled `.bin` that is really hex/srec still parse.
+    /// Sniff a plausible first record, so a binary image beginning with ASCII
+    /// `S` or `:` is not mistaken for a text format.
     ///
     /// ```
     /// use minipro_core::format::Format;
@@ -59,10 +59,26 @@ impl Format {
     /// assert_eq!(Format::detect(&[0xde, 0xad]), Format::Raw);
     /// ```
     pub fn detect(bytes: &[u8]) -> Format {
-        match bytes.iter().find(|b| !b.is_ascii_whitespace()) {
-            Some(b':') => Format::IHex,
-            Some(b'S') => Format::SRec,
-            _ => Format::Raw,
+        let first = bytes
+            .split(|&b| b == b'\n')
+            .find(|line| line.iter().any(|b| !b.is_ascii_whitespace()))
+            .unwrap_or_default();
+        let line = first.trim_ascii();
+        if line.len() >= 11
+            && line[0] == b':'
+            && line[1..].len() % 2 == 0
+            && line[1..].iter().all(u8::is_ascii_hexdigit)
+        {
+            Format::IHex
+        } else if line.len() >= 10
+            && line[0] == b'S'
+            && line[1].is_ascii_digit()
+            && line[2..].len() % 2 == 0
+            && line[2..].iter().all(u8::is_ascii_hexdigit)
+        {
+            Format::SRec
+        } else {
+            Format::Raw
         }
     }
 
@@ -361,9 +377,28 @@ mod tests {
         assert_eq!(Format::from_path(Path::new("d.s19")), Format::SRec);
         assert_eq!(Format::from_path(Path::new("d.bin")), Format::Raw);
         assert_eq!(Format::from_path(Path::new("d")), Format::Raw);
-        assert_eq!(Format::detect(b"\n  :10..."), Format::IHex);
-        assert_eq!(Format::detect(b"S00600004844..."), Format::SRec);
+        assert_eq!(Format::detect(b"\n  :00000001FF\n"), Format::IHex);
+        assert_eq!(Format::detect(b"S9030000FC\n"), Format::SRec);
+        assert_eq!(Format::detect(b"Sample binary image"), Format::Raw);
+        assert_eq!(Format::detect(b":not a record"), Format::Raw);
         assert_eq!(Format::detect(&[0x00, 0x01, 0x02]), Format::Raw);
+    }
+
+    #[test]
+    fn malformed_text_images_do_not_panic_or_exceed_limit() {
+        let source = img(&[0x12, 0x34, 0x56, 0x78]);
+        for format in [Format::IHex, Format::SRec] {
+            let valid = format.emit(&source);
+            for position in 0..valid.len() {
+                for replacement in [0, b'F', b':', b'\n', 0xff] {
+                    let mut mutated = valid.clone();
+                    mutated[position] = replacement;
+                    if let Ok(image) = format.parse_with_limit(&mutated, PAD, 64) {
+                        assert!(image.bytes.len() <= 64);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
