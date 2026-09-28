@@ -27,6 +27,9 @@ target-Mac and T76 acceptance steps.
 
 ## 2. Mac and T76 acceptance — requires the user's hardware
 
+Follow the [target-Mac validation checklist](HARDWARE-VALIDATION.md) and retain
+the recorded results with the original dumps.
+
 1. Build the Release scheme on macOS 26.7 with Xcode and Rust for
    `aarch64-apple-darwin`; resolve any SDK or Swift compiler errors.
 2. Test the supplied USB cable directly on the target Mac and record the

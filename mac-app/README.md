@@ -5,6 +5,8 @@ targets an Apple Silicon Mac running macOS 26.7 and an XGecu T76.
 All app text and project documentation are in English.
 The staged implementation and hardware acceptance plan is in
 [ROADMAP.md](ROADMAP.md).
+Use the [target-Mac validation checklist](HARDWARE-VALIDATION.md) when the T76
+and supplied USB cable are available.
 The [macOS CI workflow](../.github/workflows/macos.yml) builds the arm64 app and
 runs the Rust tests on a GitHub-hosted macOS 26 runner. Hardware acceptance still
 requires the target Mac and a connected T76.
