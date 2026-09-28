@@ -1239,6 +1239,22 @@ fn run_logic(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
 
 /// Autodetect a seated SPI 25-series flash. No device is known up front — the
 /// driver uploads the SPI25F probe bitstream and returns the JEDEC id.
+fn soic16_candidates(devices: &[minipro_core::device::Device], id: u32) -> Vec<&str> {
+    let mut matches: Vec<&str> = devices
+        .iter()
+        .filter(|d| {
+            d.chip_id_bytes == 3
+                && d.chip_id == id
+                && d.package.name.eq_ignore_ascii_case("SOIC16")
+                && d.package.pin_count == 16
+        })
+        .map(|d| d.name.as_str())
+        .collect();
+    matches.sort_unstable();
+    matches.dedup();
+    matches
+}
+
 fn run_autodetect(db_dir: Option<&Path>, wide: bool, mode: Mode) -> Result<()> {
     let mut note = reporter_for(mode);
     let db = load_db(db_dir, note.as_mut())?;
@@ -1257,19 +1273,7 @@ fn run_autodetect(db_dir: Option<&Path>, wide: bool, mode: Mode) -> Result<()> {
     // The SPI probe is wired for the SOIC16 socket adapter. An ID alone does
     // not distinguish capacity revisions or pin-compatible variants, so send
     // every matching database entry for the user to confirm by its marking.
-    let mut matches: Vec<&str> = db
-        .all()
-        .iter()
-        .filter(|d| {
-            d.chip_id_bytes == 3
-                && d.chip_id == id
-                && d.package.name.eq_ignore_ascii_case("SOIC16")
-                && d.package.pin_count == 16
-        })
-        .map(|d| d.name.as_str())
-        .collect();
-    matches.sort_unstable();
-    matches.dedup();
+    let matches = soic16_candidates(db.all(), id);
     match mode {
         Mode::Json => {
             println!(
@@ -1674,6 +1678,35 @@ mod tests {
             Command::Autodetect { wide } => assert!(!wide, "8-pin is the default"),
             _ => panic!("expected autodetect"),
         }
+    }
+
+    #[test]
+    fn autodetect_lists_all_matching_soic16_profiles() {
+        use minipro_core::device::{Device, Package};
+
+        let device = |name: &str, id: u32, bytes: u8, package: &str, pins: u8| Device {
+            name: name.into(),
+            chip_id: id,
+            chip_id_bytes: bytes,
+            package: Package {
+                name: package.into(),
+                pin_count: pins,
+            },
+            ..Device::default()
+        };
+        let devices = vec![
+            device("Z@SOIC16", 0xC2201B, 3, "SOIC16", 16),
+            device("A@SOIC16", 0xC2201B, 3, "soic16", 16),
+            device("A@SOIC16", 0xC2201B, 3, "SOIC16", 16),
+            device("OTHER@SOIC8", 0xC2201B, 3, "SOIC8", 8),
+            device("WRONG@SOIC16", 0xC2201A, 3, "SOIC16", 16),
+            device("SHORT@SOIC16", 0xC2201B, 2, "SOIC16", 16),
+        ];
+        assert_eq!(
+            soic16_candidates(&devices, 0xC2201B),
+            vec!["A@SOIC16", "Z@SOIC16"]
+        );
+        assert!(soic16_candidates(&devices, 0xFFFFFF).is_empty());
     }
 
     #[test]
