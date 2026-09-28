@@ -41,7 +41,11 @@ in the app to work offline.
 Connect the T76 through a USB 2.0 cable or hub on Apple Silicon. Click
 **Connect / Refresh**, search for a chip, select it, and use **Detect ID** or
 **Read…**. **Blank Check** compares the entire code region with the
-chip's erased value. **Verify Against File…** reads the chip twice and compares
+chip's erased value. Selecting a chip also shows its database package, pin
+count, memory region sizes, page size, expected electronic ID, and erased value
+without connecting the programmer. The package label is not a socket placement
+guide; check the programmer's verified placement instructions before seating a
+part. **Verify Against File…** reads the chip twice and compares
 the result with a selected raw, Intel HEX, or S-record image. A short image is
 padded with the chip's erased value through its full code region. Reads are repeated
 by the Rust backend; the app marks an

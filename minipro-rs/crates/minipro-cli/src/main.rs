@@ -191,6 +191,11 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// Show database metadata for one chip without connecting a programmer
+    Describe {
+        /// Exact chip name from `search`, e.g. "W27C512@DIP28"
+        chip: String,
+    },
     /// Interactive terminal UI (chip browser, ZIF contact map, hex view)
     Tui,
     /// Read the seated chip's electronic id and match it in the database.
@@ -239,6 +244,7 @@ impl Command {
             Command::Verify { .. } => "verify",
             Command::Info => "info",
             Command::Search { .. } => "search",
+            Command::Describe { .. } => "describe",
             Command::Tui => "tui",
             Command::Detect { .. } => "detect",
             Command::Logic { .. } => "logic",
@@ -369,6 +375,7 @@ fn main() -> ExitCode {
     let result = match &command {
         Command::Tui => tui::run(cli.db.clone()),
         Command::Search { query, limit } => run_search(db_dir, query, *limit, mode),
+        Command::Describe { chip } => run_describe(db_dir, chip, mode),
         Command::Read {
             chip,
             file,
@@ -1246,6 +1253,48 @@ fn run_search(db_dir: Option<&Path>, query: &str, limit: usize, mode: Mode) -> R
     Ok(())
 }
 
+fn describe_value(dev: &minipro_core::device::Device) -> serde_json::Value {
+    serde_json::json!({
+        "op": "describe",
+        "ok": true,
+        "name": dev.name,
+        "package": dev.package.name,
+        "pins": dev.package.pin_count,
+        "code_bytes": dev.code_size,
+        "data_bytes": dev.data_size,
+        "data2_bytes": dev.data_memory2_size,
+        "page_bytes": dev.page_size,
+        "chip_id": if dev.has_chip_id() { Some(format!("{:X}", dev.chip_id)) } else { None },
+        "blank_value": format!("{:02X}", dev.blank_value),
+        "can_erase": dev.can_erase(),
+    })
+}
+
+fn run_describe(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
+    let mut note = reporter_for(mode);
+    let db = load_db(db_dir, note.as_mut())?;
+    let dev = db
+        .get(chip)
+        .ok_or(Error::Unsupported("unknown chip (try `minipro search`)"))?;
+    let value = describe_value(dev);
+    match mode {
+        Mode::Json => println!("{value}"),
+        Mode::Human | Mode::Tui => anstream::println!(
+            "{}: {} ({} pins), code {} bytes, data {} bytes, extra data {} bytes, page {} bytes, ID {}, erased 0x{}",
+            dev.name,
+            dev.package.name,
+            dev.package.pin_count,
+            dev.code_size,
+            dev.data_size,
+            dev.data_memory2_size,
+            dev.page_size,
+            value["chip_id"].as_str().unwrap_or("not specified"),
+            value["blank_value"].as_str().unwrap_or("?"),
+        ),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1253,6 +1302,42 @@ mod tests {
 
     fn parse(args: &[&str]) -> Cli {
         Cli::try_parse_from(args).expect("args parse")
+    }
+
+    #[test]
+    fn describe_is_offline_and_reports_database_metadata() {
+        use minipro_core::device::{flags, Device, Package};
+
+        let cli = parse(&["minipro", "--json", "describe", "TEST@DIP28"]);
+        assert!(matches!(cli.command, Some(Command::Describe { .. })));
+        let dev = Device {
+            name: "TEST@DIP28".into(),
+            package: Package {
+                name: "DIP28".into(),
+                pin_count: 28,
+            },
+            code_size: 32_768,
+            data_size: 128,
+            page_size: 64,
+            chip_id: 0xA1B2,
+            blank_value: 0xFF,
+            raw_flags: flags::HAS_CHIP_ID | flags::CAN_ERASE,
+            ..Device::default()
+        };
+        let value = describe_value(&dev);
+        assert_eq!(value["name"], "TEST@DIP28");
+        assert_eq!(value["package"], "DIP28");
+        assert_eq!(value["pins"], 28);
+        assert_eq!(value["code_bytes"], 32_768);
+        assert_eq!(value["data_bytes"], 128);
+        assert_eq!(value["page_bytes"], 64);
+        assert_eq!(value["chip_id"], "A1B2");
+        assert_eq!(value["can_erase"], true);
+        let without_id = Device {
+            raw_flags: 0,
+            ..dev
+        };
+        assert!(describe_value(&without_id)["chip_id"].is_null());
     }
 
     /// `--dry-run` must be opt-in. A default that skipped the write would be a

@@ -45,6 +45,8 @@ target-Mac and T76 acceptance steps.
   open/save, address jump, HEX and ASCII search, per-byte editing, range fill,
   block copy/export, undo/redo, SHA-256, and offline byte-for-byte file
   comparison. Buffer edits have Swift package tests in CI.
+- Implemented in source: read-only chip database details for package, pin
+  count, memory sizes, page size, electronic ID, and erased value.
 - Add fuse/config/lock operations, multi-region memories, and
   package/socket diagrams when their CLI path and chip metadata are verified.
 - Expand the supported T76 chip list one class at a time after hardware tests;

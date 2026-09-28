@@ -3,6 +3,41 @@ import CryptoKit
 import Foundation
 import SwiftUI
 
+struct ChipDetails {
+    let name: String
+    let package: String
+    let pins: Int
+    let codeBytes: Int
+    let dataBytes: Int
+    let extraDataBytes: Int
+    let pageBytes: Int
+    let chipID: String?
+    let blankValue: String
+    let canErase: Bool
+
+    init?(_ result: [String: Any]) {
+        guard let name = result["name"] as? String,
+              let package = result["package"] as? String,
+              let pins = result["pins"] as? Int,
+              let codeBytes = result["code_bytes"] as? Int,
+              let dataBytes = result["data_bytes"] as? Int,
+              let extraDataBytes = result["data2_bytes"] as? Int,
+              let pageBytes = result["page_bytes"] as? Int,
+              let blankValue = result["blank_value"] as? String,
+              let canErase = result["can_erase"] as? Bool else { return nil }
+        self.name = name
+        self.package = package
+        self.pins = pins
+        self.codeBytes = codeBytes
+        self.dataBytes = dataBytes
+        self.extraDataBytes = extraDataBytes
+        self.pageBytes = pageBytes
+        self.chipID = result["chip_id"] as? String
+        self.blankValue = blankValue
+        self.canErase = canErase
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var databasePath = UserDefaults.standard.string(forKey: "databasePath") ?? "" {
@@ -11,6 +46,7 @@ final class AppModel: ObservableObject {
     @Published var query = ""
     @Published var hits: [String] = []
     @Published var selectedChip = ""
+    @Published var chipDetails: ChipDetails?
     @Published var deviceStatus = "Programmer not checked"
     @Published var status = "Connect the T76 through USB 2.0, then click Connect / Refresh."
     @Published var busy = false
@@ -79,6 +115,19 @@ final class AppModel: ObservableObject {
         perform(["search", text, "--limit", "100"]) { [weak self] result in
             self?.hits = result["hits"] as? [String] ?? []
             self?.status = "Results: \(result["n"] as? Int ?? 0)."
+        }
+    }
+
+    func selectChip(_ chip: String) {
+        guard !busy else { return }
+        selectedChip = chip
+        chipDetails = nil
+        perform(["describe", chip]) { [weak self] result in
+            guard let self, self.selectedChip == chip else { return }
+            self.chipDetails = ChipDetails(result)
+            self.status = self.chipDetails == nil
+                ? "Error: The chip database returned incomplete details."
+                : "Chip details loaded from the database."
         }
     }
 

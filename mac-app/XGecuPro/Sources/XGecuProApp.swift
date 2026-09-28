@@ -35,12 +35,13 @@ private struct ContentView: View {
                 }
                 List(model.hits, id: \.self) { chip in
                     Button {
-                        model.selectedChip = chip
+                        model.selectChip(chip)
                     } label: {
                         Text(chip).lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
+                    .disabled(model.busy)
                     .listRowBackground(model.selectedChip == chip ? Color.accentColor.opacity(0.15) : Color.clear)
                 }
                 Text("Database: " + (model.databasePath.isEmpty ? "automatic" : model.databasePath))
@@ -57,6 +58,22 @@ private struct ContentView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text(model.selectedChip.isEmpty ? "Select a chip" : model.selectedChip)
                     .font(.title2.bold())
+                if let details = model.chipDetails, details.name == model.selectedChip {
+                    GroupBox("Chip details · database") {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Package: \(details.package) · \(details.pins) pins")
+                            Text("Code: \(details.codeBytes.formatted()) bytes · Data: \(details.dataBytes.formatted()) bytes")
+                            if details.extraDataBytes > 0 {
+                                Text("Extra data: \(details.extraDataBytes.formatted()) bytes")
+                            }
+                            Text("Page: \(details.pageBytes.formatted()) bytes · Erased value: 0x\(details.blankValue)")
+                            Text("Electronic ID: \(details.chipID.map { "0x" + $0 } ?? "not specified")")
+                            Text(details.canErase ? "Database marks this chip as erasable." : "Database does not mark this chip as erasable.")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
                 HStack {
                     Button("Detect ID") { model.detect() }
                         .disabled(!model.canReadSelected)
