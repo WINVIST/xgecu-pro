@@ -74,6 +74,16 @@ jobs:
           second=$("$helper" --json describe MX25L25645G@SOIC16)
           printf '%s\n' "$second" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 33554432 and .page_bytes == 256 and .chip_id == "C22019"'
 
+      - name: Test private offline packaging without publishing vendor files
+        run: |
+          app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
+          personal="$RUNNER_TEMP/XGecuPro-Offline.app"
+          test ! -e "$app/Contents/Resources/ChipDatabase"
+          bash mac-app/scripts/make-personal-offline-app.sh "$app" "$personal"
+          test -f "$personal/Contents/Resources/ChipDatabase/InfoICT76.dll"
+          codesign --verify --deep --strict --verbose=2 "$personal"
+          test ! -e "$app/Contents/Resources/ChipDatabase"
+
       - name: Check 256 MiB image conversion
         run: |
           helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
