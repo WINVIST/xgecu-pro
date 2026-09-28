@@ -75,6 +75,26 @@ network access. The application does not redistribute the proprietary vendor
 database or FPGA algorithms.
 GitHub workflow artifacts expire; download a new successful run when needed.
 
+### Make a personal offline copy
+
+After the first successful database download, you can package your own cached
+copy into a separate `.app` on the Mac. Download and unpack the CI artifact,
+then run this script from the cloned repository (replace the app paths):
+
+```sh
+bash mac-app/scripts/make-personal-offline-app.sh \
+  /path/to/XGecuPro.app /path/to/XGecuPro-Offline.app
+```
+
+The script uses `~/Library/Caches/minipro/xgpro-pinned-v1321` by default. Pass
+the extracted database directory as a third argument if yours is elsewhere.
+It checks the database with the bundled helper, copies the catalog and FPGA
+algorithms, signs the personal app ad hoc, and verifies its signature. The app
+then shows **Database: bundled for offline use** and needs no database network
+request. Keep that personal copy private; public CI archives and GitHub
+Releases do not include XGecu's proprietary files. A manually chosen local
+database in the GUI still takes precedence over the bundled copy.
+
 ## Build on the Mac
 
 1. Copy or clone this entire repository to the Mac. The Windows checkout is

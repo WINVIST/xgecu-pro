@@ -12,6 +12,19 @@ struct MiniProFailure: LocalizedError {
 /// Runs the bundled Rust CLI without a shell. The CLI writes one JSON result to
 /// stdout and newline-delimited progress/warnings to stderr.
 final class MiniProRunner {
+    static var bundledDatabasePath: String? {
+        guard let root = Bundle.main.resourceURL?.appendingPathComponent("ChipDatabase") else {
+            return nil
+        }
+        let files = FileManager.default
+        guard files.fileExists(atPath: root.appendingPathComponent("InfoICT76.dll").path),
+              files.fileExists(atPath: root.appendingPathComponent("algoT76").path)
+                || files.fileExists(atPath: root.appendingPathComponent("algorithm.xml").path) else {
+            return nil
+        }
+        return root.path
+    }
+
     func run(
         _ arguments: [String],
         databasePath: String,
@@ -30,7 +43,8 @@ final class MiniProRunner {
         DispatchQueue.global(qos: .userInitiated).async {
             let process = Process()
             process.executableURL = executable
-            process.arguments = ["--json"] + (databasePath.isEmpty ? [] : ["--db", databasePath]) + arguments
+            let resolvedDatabase = databasePath.isEmpty ? Self.bundledDatabasePath : databasePath
+            process.arguments = ["--json"] + (resolvedDatabase.map { ["--db", $0] } ?? []) + arguments
             var environment = ProcessInfo.processInfo.environment
             for key in ["MINIPRO_VENDOR_URL", "MINIPRO_DB_URL", "MINIPRO_DB_DIR", "MINIPRO_KEEP_BITSTREAM"] {
                 environment.removeValue(forKey: key)

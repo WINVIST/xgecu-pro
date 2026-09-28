@@ -107,11 +107,11 @@ the recorded results with the original dumps.
 
 ## 5. Optional backlog — wait for the user's decision
 
-- Offer a fully offline personal build that packages a database copy supplied
-  by the device owner, if redistribution terms permit that use. The public
-  app currently downloads and verifies the vendor archive once, then reuses
-  the extracted local cache. Do not include the proprietary vendor DLL or
-  FPGA algorithms in a public GitHub Release without distribution rights.
+- A script now makes a private offline app from an owner-supplied extracted
+  database and an already-built app. Public builds download and verify the
+  vendor archive once, then reuse the extracted local cache. Do not include
+  the proprietary vendor DLL or FPGA algorithms in a public GitHub Release
+  without distribution rights.
 - Fuse/config/lock operations, multi-region memories, and package/socket
   diagrams after their CLI path and chip metadata are verified.
 - Validate additional database chip families on hardware, one class at a time;

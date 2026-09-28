@@ -46,7 +46,7 @@ private struct ContentView: View {
                     .disabled(model.busy)
                     .listRowBackground(model.selectedChip == chip ? Color.accentColor.opacity(0.15) : Color.clear)
                 }
-                Text("Database: " + (model.databasePath.isEmpty ? "automatic" : model.databasePath))
+                Text("Database: " + model.databaseDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

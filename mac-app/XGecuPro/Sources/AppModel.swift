@@ -8,6 +8,10 @@ final class AppModel: ObservableObject {
     @Published var databasePath = UserDefaults.standard.string(forKey: "databasePath") ?? "" {
         didSet { UserDefaults.standard.set(databasePath, forKey: "databasePath") }
     }
+    var databaseDescription: String {
+        if !databasePath.isEmpty { return databasePath }
+        return MiniProRunner.bundledDatabasePath == nil ? "automatic (cached after first download)" : "bundled for offline use"
+    }
     @Published var query = ""
     @Published var hits: [String] = []
     @Published var selectedChip = ""
