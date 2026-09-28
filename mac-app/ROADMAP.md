@@ -39,7 +39,7 @@ target-Mac and T76 acceptance steps.
 5. Record the Mac model, macOS/Xcode/Rust versions, T76 firmware, database
    version, part and package, USB link, and results for reproducibility.
 
-## 3. Optional features — implement after the user selects them
+## 3. Additional tools already in source
 
 - Implemented in source: paged full-image hex buffer (64 MiB limit), file
   open/save for raw, Intel HEX, and S-record images, address jump, HEX and ASCII
@@ -48,6 +48,9 @@ target-Mac and T76 acceptance steps.
   comparison. Buffer edits have Swift package tests in CI.
 - Implemented in source: read-only chip database details for package, pin
   count, memory sizes, page size, electronic ID, and erased value.
+
+## 4. Optional backlog — wait for the user's decision
+
 - Fuse/config/lock operations, multi-region memories, and package/socket
   diagrams after their CLI path and chip metadata are verified.
 - Expand the supported T76 chip list one class at a time after hardware tests;
