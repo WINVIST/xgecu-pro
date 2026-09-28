@@ -20,6 +20,7 @@ final class AppModel: ObservableObject {
     @Published var status = "Connect the T76 with the supplied USB cable, then click Connect / Refresh."
     @Published var busy = false
     @Published var progress: Double?
+    @Published var currentStage: String?
     @Published var log: [String] = []
     @Published var hexPreview = ""
     @Published var lastFile: URL?
@@ -606,10 +607,15 @@ final class AppModel: ObservableObject {
         guard !busy else { cleanup?(); return }
         busy = true
         progress = nil
+        currentStage = "Starting \(arguments.first ?? "operation")…"
         status = "Running: \(arguments.first ?? "operation")…"
         runner.run(arguments, databasePath: selectedDatabase ?? databasePath, onEvent: { [weak self] event in
             guard let self else { return }
-            if let value = event["progress"] as? [String: Any],
+            if let stage = event["stage"] as? String {
+                self.currentStage = stage
+                self.progress = nil
+                self.log.append("Stage: \(stage)")
+            } else if let value = event["progress"] as? [String: Any],
                let done = value["done"] as? Double,
                let total = value["total"] as? Double, total > 0 {
                 self.progress = min(1, done / total)
@@ -623,6 +629,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             self.busy = false
             self.progress = nil
+            self.currentStage = nil
             switch result {
             case .success(let value):
                 success(value)

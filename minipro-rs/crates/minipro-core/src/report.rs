@@ -15,11 +15,16 @@ use std::borrow::Cow;
 /// A non-terminal progress/diagnostic event.
 ///
 /// Serializes externally tagged, snake_case: `{"progress":{"done":0,"total":8}}`,
-/// `{"warn":…}`, `{"note":"…"}`.
+/// `{"stage":"Programming chip"}`, `{"warn":…}`, `{"note":"…"}`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum Event {
-    Progress { done: u64, total: u64 },
+    Progress {
+        done: u64,
+        total: u64,
+    },
+    /// Current operation phase. A new stage starts a new progress interval.
+    Stage(Cow<'static, str>),
     Warn(Warning),
     Note(Cow<'static, str>),
 }
@@ -264,6 +269,9 @@ mod tests {
 
     #[test]
     fn events_serialize_externally_tagged() {
+        let v = serde_json::to_value(Event::Stage("Programming chip".into())).unwrap();
+        assert_eq!(v, serde_json::json!({"stage": "Programming chip"}));
+
         let v = serde_json::to_value(Event::Progress { done: 4, total: 10 }).unwrap();
         assert_eq!(v, serde_json::json!({"progress": {"done": 4, "total": 10}}));
 

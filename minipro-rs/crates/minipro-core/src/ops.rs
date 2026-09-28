@@ -308,6 +308,7 @@ pub fn write_region(
         )));
     }
 
+    rep.event(&Event::Stage("Programming chip".into()));
     // Write loop. Scoped so the `MemoryOps` borrow ends before the read-back
     // pass borrows the programmer again.
     {
@@ -326,6 +327,7 @@ pub fn write_region(
     }
 
     // Read-back verify.
+    rep.event(&Event::Stage("Verifying programmed data".into()));
     let back = read_region(prog, s, region, rep)?;
     if let Some(i) = back
         .bytes
@@ -351,12 +353,14 @@ mod tests {
     #[derive(Default)]
     struct Collect {
         progress: Vec<(u64, u64)>,
+        stages: Vec<String>,
         notes: Vec<String>,
     }
     impl Reporter for Collect {
         fn event(&mut self, ev: &Event) {
             match ev {
                 Event::Progress { done, total } => self.progress.push((*done, *total)),
+                Event::Stage(stage) => self.stages.push(stage.to_string()),
                 Event::Note(n) => self.notes.push(n.to_string()),
                 Event::Warn(_) => {}
             }
@@ -690,6 +694,10 @@ mod tests {
         assert_eq!(prog.mem, image.bytes);
         // Write pass + verify pass each report a full progress ramp.
         assert_eq!(rep.progress.len(), 8);
+        assert_eq!(
+            rep.stages,
+            ["Programming chip", "Verifying programmed data"]
+        );
     }
 
     #[test]

@@ -96,6 +96,8 @@ private struct ContentView: View {
                 }
                 .disabled(model.busy || !model.isT76 || model.selectedChip.isEmpty)
                 if model.busy {
+                    Text(model.currentStage ?? "Preparing operation…")
+                        .font(.caption.weight(.medium))
                     if let progress = model.progress {
                         ProgressView(value: progress)
                     } else {

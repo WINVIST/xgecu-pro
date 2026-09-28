@@ -97,6 +97,12 @@ impl Reporter for HumanReporter {
                 bar.set_length(*total);
                 bar.set_position(*done);
             }
+            Event::Stage(stage) => {
+                if let Some(bar) = self.bar.take() {
+                    bar.finish_and_clear();
+                }
+                self.diag(stage);
+            }
             Event::Warn(w) => {
                 let msg = format!("{} {}", "warning:".yellow().bold(), warning_text(w));
                 self.diag(&msg);
@@ -423,6 +429,7 @@ impl Reporter for TuiReporter {
                 done: *done,
                 total: *total,
             },
+            Event::Stage(stage) => UiMsg::Note(stage.to_string()),
             Event::Note(n) => UiMsg::Note(n.to_string()),
             Event::Warn(Warning::BadContact(pins)) => UiMsg::BadContact(pins.clone()),
             Event::Warn(w) => UiMsg::Warn(warning_text(w)),
@@ -487,6 +494,7 @@ mod tests {
         let mut rep = JsonReporter::with_writers(Box::new(out.clone()), Box::new(err.clone()));
 
         rep.event(&Event::Progress { done: 4, total: 10 });
+        rep.event(&Event::Stage("Verifying programmed data".into()));
         rep.event(&Event::Warn(Warning::BadContact(vec![3, 4])));
         rep.finish(&Outcome::Ok { op: "erase" });
 
@@ -496,6 +504,10 @@ mod tests {
         assert_eq!(
             lines.next().unwrap(),
             r#"{"progress":{"done":4,"total":10}}"#
+        );
+        assert_eq!(
+            lines.next().unwrap(),
+            r#"{"stage":"Verifying programmed data"}"#
         );
         assert_eq!(lines.next().unwrap(), r#"{"warn":{"bad_contact":[3,4]}}"#);
         assert!(lines.next().is_none());
@@ -583,11 +595,13 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut rep = TuiReporter::from_sender(tx);
         rep.event(&Event::Progress { done: 1, total: 2 });
+        rep.event(&Event::Stage("Programming chip".into()));
         rep.event(&Event::Warn(Warning::BadContact(vec![7])));
         rep.event(&Event::Note("hello".into()));
         rep.finish(&Outcome::Ok { op: "erase" });
 
         assert_eq!(rx.recv().unwrap(), UiMsg::Progress { done: 1, total: 2 });
+        assert_eq!(rx.recv().unwrap(), UiMsg::Note("Programming chip".into()));
         assert_eq!(rx.recv().unwrap(), UiMsg::BadContact(vec![7]));
         assert_eq!(rx.recv().unwrap(), UiMsg::Note("hello".into()));
         assert_eq!(rx.recv().unwrap(), UiMsg::Outcome("erase: ok".into()));

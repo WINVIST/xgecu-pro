@@ -864,9 +864,12 @@ fn run_write(
     no_erase: bool,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
+    rep.event(&Event::Stage("Loading chip database".into()));
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Write { dry_run })?;
+    rep.event(&Event::Stage("Preparing programming image".into()));
     let image = load_image(file, format, dev.code_size, dev.blank_value)?;
+    rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
 
@@ -911,6 +914,7 @@ fn write_to_programmer(
     rep: &mut dyn Reporter,
 ) -> Result<()> {
     if !dry_run {
+        rep.event(&Event::Stage("Checking chip ID".into()));
         validate_chip_before_mutation(prog, dev, force, rep)?;
     }
 
@@ -918,6 +922,7 @@ fn write_to_programmer(
     // write-protect lifted in its own transaction first — otherwise the
     // program pass changes nothing. No-op elsewhere; skipped on dry runs.
     if !dry_run {
+        rep.event(&Event::Stage("Preparing write protection".into()));
         ops::lift_protect(prog, dev)?;
     }
 
@@ -926,12 +931,14 @@ fn write_to_programmer(
     // verify). Same gate as the C: can_erase, unless --no-erase. Its own
     // transaction, like lift_protect. No-op on OTP parts and dry runs.
     if !dry_run && !no_erase && dev.can_erase() {
+        rep.event(&Event::Stage("Erasing chip".into()));
         let mut txn = Txn::begin(prog, dev)?;
         let (p, s) = txn.parts();
         let mem = p.memory().ok_or(Error::Unsupported("memory ops"))?;
         mem.erase(s, EraseKind::Chip)?;
     }
 
+    rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
     {
         let mut txn = Txn::begin(prog, dev)?;
         let (p, s) = txn.parts();
@@ -953,8 +960,10 @@ fn write_to_programmer(
 }
 
 fn run_erase(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Result<()> {
+    rep.event(&Event::Stage("Loading chip database".into()));
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Erase)?;
+    rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
 
@@ -1034,8 +1043,10 @@ fn erase_with_programmer(
     dev: &minipro_core::device::Device,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
+    rep.event(&Event::Stage("Checking chip ID".into()));
     validate_chip_before_mutation(prog, dev, false, rep)?;
 
+    rep.event(&Event::Stage("Erasing chip".into()));
     {
         let mut txn = Txn::begin(prog, dev)?;
         let (p, s) = txn.parts();
