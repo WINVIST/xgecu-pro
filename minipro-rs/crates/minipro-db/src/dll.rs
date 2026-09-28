@@ -633,7 +633,10 @@ mod tests {
 
     #[test]
     fn chip_name_normalizes_vendor_padding_before_package() {
-        assert_eq!(normalize_chip_name("MX66L1G45G  @SOIC16"), "MX66L1G45G@SOIC16");
+        assert_eq!(
+            normalize_chip_name("MX66L1G45G  @SOIC16"),
+            "MX66L1G45G@SOIC16"
+        );
         assert_eq!(normalize_chip_name("W25Q64BV @SOIC8"), "W25Q64BV@SOIC8");
     }
 
