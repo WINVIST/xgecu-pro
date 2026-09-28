@@ -23,10 +23,30 @@ This path does not require Xcode or Rust on your Mac:
    `shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256`. After it reports `OK`,
    extract `XGecuPro-macOS-arm64.zip` and move `XGecuPro.app` to
    **Applications**. Keep the inner ZIP if you want a copy of the exact build.
-4. Open the app. This CI build is unsigned and not notarized. If macOS blocks
-   it, use **System Settings → Privacy & Security → Open Anyway** after the
-   first open attempt. Approve only the artifact from your fork's successful
+4. Open the app. This CI build has an ad hoc code signature, but no Apple
+   Developer ID signature or notarization. If macOS blocks it, use
+   **System Settings → Privacy & Security → Open Anyway** after the first
+   open attempt. Approve only the artifact from your fork's successful
    workflow run. See [Apple's instructions](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac).
+
+If macOS instead says the app is **damaged**, first confirm the checksum in
+step 3 reported `OK`, then verify the app's code signature in Terminal:
+
+```sh
+codesign --verify --deep --strict --verbose=2 /Applications/XGecuPro.app
+```
+
+If verification succeeds and the app came from your successful fork workflow,
+remove the download quarantine from this app only and open it again:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/XGecuPro.app
+open /Applications/XGecuPro.app
+```
+
+Stop if the checksum or code signature verification fails. The quarantine
+workaround is for this test build; normal distribution requires Developer ID
+signing and notarization.
 
 The archive contains the Apple Silicon app and bundled `minipro` helper. It
 does not contain the vendor database or firmware. The app retrieves the pinned
