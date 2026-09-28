@@ -768,6 +768,7 @@ fn run_read(
     skip_pincheck: bool,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
+    rep.event(&Event::Stage("Loading chip database".into()));
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
     let large_raw = dev.code_size > minipro_core::format::MAX_IMAGE_BYTES as u64;
@@ -781,6 +782,7 @@ fn run_read(
             "chip capacity exceeds the streamed read limit".into(),
         ));
     }
+    rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
     let link = prog.info().link;
@@ -792,6 +794,7 @@ fn run_read(
             .unwrap_or(Path::new("."));
         let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
         let verified = {
+            rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
             let mut txn = Txn::begin(&mut *prog, &dev)?;
             let (p, s) = txn.parts();
             pincheck(p, s, skip_pincheck, rep)?;
@@ -805,6 +808,7 @@ fn run_read(
     }
 
     let verified = {
+        rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
         let mut txn = Txn::begin(&mut *prog, &dev)?; // ends (de-energizes) on drop
         let (p, s) = txn.parts();
         pincheck(p, s, skip_pincheck, rep)?;
@@ -971,16 +975,20 @@ fn run_erase(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Resul
 }
 
 fn run_blank(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Result<()> {
+    rep.event(&Event::Stage("Loading chip database".into()));
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
+    rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
 
     let blank = {
+        rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
         let mut txn = Txn::begin(&mut *prog, &dev)?;
         let (p, s) = txn.parts();
         pincheck(p, s, false, rep)?;
         check_chip_id(p, s, &dev, false, rep)?;
+        rep.event(&Event::Stage("Checking whether chip is blank".into()));
         p.memory()
             .ok_or(Error::Unsupported("memory ops"))?
             .blank_check(s, Region::code(&dev))?
@@ -1002,19 +1010,24 @@ fn run_verify(
     skip_pincheck: bool,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
+    rep.event(&Event::Stage("Loading chip database".into()));
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
+    rep.event(&Event::Stage("Preparing comparison image".into()));
     let expected = load_image(file, format, dev.code_size, dev.blank_value)?;
+    rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
 
     let verified = {
+        rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
         let mut txn = Txn::begin(&mut *prog, &dev)?;
         let (p, s) = txn.parts();
         pincheck(p, s, skip_pincheck, rep)?;
         check_chip_id(p, s, &dev, force, rep)?;
         ops::read_verified(p, s, Region::code(&dev), rep)?
     };
+    rep.event(&Event::Stage("Comparing chip data with file".into()));
     rep.finish(&verify_outcome(&dev.name, &expected, &verified));
     Ok(())
 }

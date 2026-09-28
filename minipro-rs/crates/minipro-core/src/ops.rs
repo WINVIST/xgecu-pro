@@ -181,6 +181,7 @@ pub fn read_verified_to_file<F: Read + Write + Seek>(
 
     let mut crc = crc32fast::Hasher::new();
     let mut sha = sha2::Sha256::new();
+    rep.event(&Event::Stage("Reading chip (first pass)".into()));
     {
         let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
         let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Read));
@@ -207,6 +208,7 @@ pub fn read_verified_to_file<F: Read + Write + Seek>(
 
     file.flush()?;
     file.seek(SeekFrom::Start(0))?;
+    rep.event(&Event::Stage("Confirming chip data (second pass)".into()));
     let mut stable = true;
     {
         let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
@@ -270,7 +272,9 @@ pub fn read_verified(
     region: Region,
     rep: &mut dyn Reporter,
 ) -> Result<VerifiedRead> {
+    rep.event(&Event::Stage("Reading chip (first pass)".into()));
     let a = read_region(prog, s, region, rep)?;
+    rep.event(&Event::Stage("Confirming chip data (second pass)".into()));
     let b = read_region(prog, s, region, rep)?;
     let stable = a.bytes == b.bytes;
     if !stable {
@@ -616,6 +620,13 @@ mod tests {
         let mut rep = Collect::default();
         let v = read_verified(&mut prog, &s, Region::code(&dev), &mut rep).unwrap();
         assert!(!v.stable);
+        assert_eq!(
+            rep.stages,
+            [
+                "Reading chip (first pass)",
+                "Confirming chip data (second pass)"
+            ]
+        );
         assert_eq!(rep.notes.len(), 1);
         // The image is the *first* read; hashes must match it.
         assert_eq!(v.image.bytes, vec![0xa5; 8]);
@@ -634,6 +645,13 @@ mod tests {
             read_verified_to_file(&mut prog, &s, Region::code(&dev), &mut file, &mut rep).unwrap();
         assert_eq!(file.into_inner(), data);
         assert!(read.stable);
+        assert_eq!(
+            rep.stages,
+            [
+                "Reading chip (first pass)",
+                "Confirming chip data (second pass)"
+            ]
+        );
         assert_eq!(read.bytes, 9);
         assert_eq!(read.crc32, 0xcbf4_3926);
         assert_eq!(

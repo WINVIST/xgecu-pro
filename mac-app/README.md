@@ -183,6 +183,12 @@ to mark the part electrically erasable. The backend can still refuse an
 unsupported chip family or algorithm. These controls are **not** a claim that
 every database part has been tested on hardware. Write first runs `--dry-run`,
 then asks for confirmation and uses the backend's read-back verification.
+The operation area displays the current stage beside its spinner or progress
+bar. The **Log** tab records timed stage changes, progress at 10% milestones,
+warnings, and the final result. A successful Program does not replace the Hex
+buffer with a fresh chip read; use **Read…** to save and inspect a new dump.
+Short programming images are padded to chip capacity with the part's erased
+byte, as stated in the confirmation dialog.
 The backend checks the chip ID before erase or protect changes; the GUI also
 requires a connected T76 and an ID for mutations.
 Save a dump before changing a chip. Do not disconnect the programmer during
@@ -195,6 +201,9 @@ ID `C2201B`) and `MX25L51245G@SOIC16` (64 MiB, ID `C2201A`). The GUI enables
 ID detection, read, blank check, file comparison, program, and erase through
 the same database-driven controls as other parts. Their socket placement,
 algorithm behavior, and full read results still require live validation.
+One user-reported T76/macOS programming attempt for `MX66L1G45G@SOIC16`
+completed with backend read-back verification. Independent full read comparison
+and the second target chip remain to be validated.
 Preserve two matching original dumps before attempting any destructive operation.
 For MX66L1G45G, **Read…** saves the 128 MiB code region; its separate 512-byte
 data region is outside the current GUI read workflow.

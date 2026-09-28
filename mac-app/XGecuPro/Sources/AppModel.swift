@@ -237,6 +237,10 @@ final class AppModel: ObservableObject {
             status = "Error: Could not prepare the programming image (\(englishErrorDetails(error)))."
             return
         }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: snapshot.file.path)
+        if let size = attributes?[.size] as? NSNumber {
+            appendLog("Programming image selected: \(url.lastPathComponent), \(size.intValue.formatted()) bytes.")
+        }
         var committed = false
         perform(["write", chip, snapshot.file.path, "--dry-run"],
                 databasePath: selectedDatabase,
@@ -247,14 +251,14 @@ final class AppModel: ObservableObject {
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = "Program \(chip)?"
-            alert.informativeText = "Preflight passed. This will change the chip contents; erasable chips are erased before programming. Save the original dump first."
+            alert.informativeText = "Preflight passed. This will change the chip contents; erasable chips are erased before programming. Short images are padded to the chip capacity with the erased byte. Save the original dump first."
             alert.addButton(withTitle: "Program and Verify")
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             committed = true
             self.perform(["write", chip, snapshot.file.path], databasePath: selectedDatabase,
                          cleanup: { try? FileManager.default.removeItem(at: snapshot.directory) }) { [weak self] _ in
-                self?.status = "Programming completed and verified by a readback."
+                self?.status = "Programming completed and verified by a readback. The Hex buffer was not changed; use Read to view the chip."
             }
         }
     }
@@ -605,40 +609,94 @@ final class AppModel: ObservableObject {
                          cleanup: (() -> Void)? = nil,
                          success: @escaping ([String: Any]) -> Void) {
         guard !busy else { cleanup?(); return }
+        let operation = arguments.first ?? "operation"
+        let startedAt = Date()
+        var stageStartedAt = startedAt
+        var lastMilestone = -1
         busy = true
         progress = nil
-        currentStage = "Starting \(arguments.first ?? "operation")…"
-        status = "Running: \(arguments.first ?? "operation")…"
+        currentStage = "Starting \(operation)…"
+        status = "Running: \(operation)…"
+        let chipCommands: Set<String> = ["read", "write", "erase", "blank", "verify", "detect", "describe"]
+        let target = chipCommands.contains(operation) && !selectedChip.isEmpty ? " for \(selectedChip)" : ""
+        appendLog("Started \(operation)\(target).")
         runner.run(arguments, databasePath: selectedDatabase ?? databasePath, onEvent: { [weak self] event in
             guard let self else { return }
             if let stage = event["stage"] as? String {
+                if let previous = self.currentStage, !previous.hasPrefix("Starting ") {
+                    self.appendLog("Finished \(previous) after \(String(format: "%.1f", Date().timeIntervalSince(stageStartedAt))) s.")
+                }
                 self.currentStage = stage
                 self.progress = nil
-                self.log.append("Stage: \(stage)")
+                stageStartedAt = Date()
+                lastMilestone = -1
+                self.appendLog("Stage: \(stage).")
             } else if let value = event["progress"] as? [String: Any],
                let done = value["done"] as? Double,
                let total = value["total"] as? Double, total > 0 {
                 self.progress = min(1, done / total)
+                let milestone = min(10, max(0, Int(done / total * 10)))
+                if milestone > lastMilestone {
+                    lastMilestone = milestone
+                    self.appendLog("\(self.currentStage ?? operation): \(milestone * 10)% (\(Int(done).formatted()) / \(Int(total).formatted()) bytes).")
+                }
             } else if let note = event["note"] as? String {
-                self.log.append(note)
-            } else if event["warn"] != nil {
-                self.log.append("Warning: \(event)")
+                self.appendLog("Note: \(note)")
+            } else if let warning = event["warn"] {
+                self.appendLog("Warning: \(self.warningDescription(warning))")
             }
         }, completion: { [weak self] result in
             defer { cleanup?() }
             guard let self else { return }
+            if let stage = self.currentStage, !stage.hasPrefix("Starting ") {
+                self.appendLog("Finished \(stage) after \(String(format: "%.1f", Date().timeIntervalSince(stageStartedAt))) s.")
+            }
             self.busy = false
             self.progress = nil
             self.currentStage = nil
             switch result {
             case .success(let value):
+                let reportedOperation = value["op"] as? String ?? operation
+                let detail: String
+                if reportedOperation == "write" {
+                    detail = "readback verification passed"
+                } else if reportedOperation == "read" {
+                    detail = (value["stable"] as? Bool == true) ? "two reads matched" : "two reads differed"
+                } else if reportedOperation == "verify" {
+                    detail = (value["matches"] as? Bool == true) ? "file matches chip" : "file differs from chip"
+                } else {
+                    detail = "completed"
+                }
+                self.appendLog("Result: \(reportedOperation), \(detail); total \(String(format: "%.1f", Date().timeIntervalSince(startedAt))) s.")
                 success(value)
             case .failure(let error):
                 let message = self.englishErrorDetails(error)
                 self.status = "Error: \(message)"
-                self.log.append(message)
+                self.appendLog("Failed \(operation) after \(String(format: "%.1f", Date().timeIntervalSince(startedAt))) s: \(message)")
             }
         })
+    }
+
+    private func appendLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        log.append("[\(formatter.string(from: Date()))] \(message)")
+    }
+
+    private func warningDescription(_ warning: Any) -> String {
+        if let code = warning as? String, code == "firmware_mismatch" {
+            return "T76 firmware differs from the chip database target; verify the result carefully."
+        }
+        if let details = warning as? [String: Any] {
+            if let pins = details["bad_contact"] as? [Int] {
+                return "Poor contact on socket pins \(pins.map(String.init).joined(separator: ", "))."
+            }
+            if let mismatch = details["chip_id_mismatch"] as? [String: Any] {
+                return "Chip ID differs from the selected database entry: \(mismatch)."
+            }
+        }
+        return String(describing: warning)
     }
 
     private func makePrivateTemporaryDirectory() throws -> URL {
