@@ -15,6 +15,10 @@ requires the target Mac and a connected T76.
 
 This path does not require Xcode or Rust on your Mac:
 
+Once a GitHub Release is published, download its app ZIP and matching
+`.sha256` file from the [Releases page](https://github.com/WINVIST/xgecu-pro/releases)
+and start at step 3 below. Until then, use a successful CI artifact.
+
 1. Sign in to GitHub and open the latest successful `macOS arm64` run for `main`
    on the [Actions page](https://github.com/WINVIST/xgecu-pro/actions/workflows/macos.yml).
 2. Under **Artifacts**, download `XGecuPro-macOS-arm64-unsigned`. GitHub gives
@@ -44,6 +48,11 @@ and open it again:
 xattr -dr com.apple.quarantine /Applications/XGecuPro.app
 open /Applications/XGecuPro.app
 ```
+
+The often quoted `xattr -cr /Applications/XGecuPro.app` removes **all** extended
+attributes recursively. The command above removes only the download
+quarantine attribute and is the narrower choice after checksum and signature
+verification. Neither command adds Apple notarization.
 
 Stop if the checksum or code signature verification fails. The quarantine
 workaround is for this test build; normal distribution requires Developer ID

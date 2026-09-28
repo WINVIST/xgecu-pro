@@ -60,8 +60,10 @@ jobs:
         run: |
           helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
           search=$("$helper" --json search MX66L1G45G --limit 100)
+          printf 'MX66 search: %s\n' "$search"
           printf '%s\n' "$search" | jq -e '.ok == true and (.hits | index("MX66L1G45G@SOIC16") != null)'
           primary=$("$helper" --json describe MX66L1G45G@SOIC16)
+          printf 'MX66 details: %s\n' "$primary"
           printf '%s\n' "$primary" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 134217728 and .data_bytes == 512 and .page_bytes == 256 and .chip_id == "C2201B"'
           search=$("$helper" --json search MX25L51245G --limit 100)
           printf '%s\n' "$search" | jq -e '.ok == true and (.hits | index("MX25L51245G@SOIC16") != null)'
