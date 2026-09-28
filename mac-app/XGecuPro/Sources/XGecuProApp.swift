@@ -124,6 +124,18 @@ private struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         if model.bufferSize > 0 {
+                            if let source = model.bufferSourceDescription {
+                                Text(source)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                            if let warning = model.bufferSourceWarning {
+                                Text(warning)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                    .textSelection(.enabled)
+                            }
                             Text("SHA-256: \(model.bufferSHA256)")
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)

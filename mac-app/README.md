@@ -205,8 +205,12 @@ For `MX66L1G45G@SOIC16`, one user-reported T76/macOS programming attempt
 completed with backend read-back verification. Two subsequent full 128 MiB
 raw reads matched by SHA-256 and external `cmp`, and Verify Against File
 reported a match. These results cover the current programmed code region;
-the pre-program original image/dump and the second target chip remain to be
-validated.
+the pre-program original image/dump remains unconfirmed. For
+`MX25L51245G@SOIC16`, two full 64 MiB reads matched by SHA-256 and external
+`cmp`, and Verify Against File reported a match. MX25 programming and erase
+have not yet been validated on the target Mac. The Hex panel labels the buffer
+source and warns if it was read from a chip other than the selected one;
+selecting another chip does not replace the buffer.
 Preserve two matching original dumps before attempting any destructive operation.
 For MX66L1G45G, **Read…** saves the 128 MiB code region; its separate 512-byte
 data region is outside the current GUI read workflow.

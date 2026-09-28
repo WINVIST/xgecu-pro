@@ -67,9 +67,11 @@ the recorded results with the original dumps.
   The GUI exposes database-driven operations for both. On the target Mac, the
   MX66L1G45G code region was programmed with backend readback verification;
   two subsequent full 128 MiB dumps matched by SHA-256 and external `cmp`.
-  Its pre-program backup remains unconfirmed. Validate the second chip with
-  two full reads and retain original backups before using destructive actions
-  on disposable examples. Earlier provisional
+  The MX25L51245G code region was read twice at 64 MiB; the dumps matched by
+  SHA-256 and external `cmp`, and Verify Against File reported a match. MX25
+  write/erase remains untested. The original MX66 pre-program backup remains
+  unconfirmed. Retain original backups before destructive actions on
+  disposable examples. Earlier provisional
   `MX25L25645GMI-08G` support is not part of this acceptance target.
 - Support the supplied USB cable on the MacBook Pro M3. The user confirmed a
   direct connection with this cable at USB High Speed, including T76 detection

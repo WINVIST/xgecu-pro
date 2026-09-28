@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
     @Published var log: [String] = []
     @Published var hexPreview = ""
     @Published var lastFile: URL?
+    @Published var bufferChip: String?
     @Published var isT76 = false
     @Published var bufferSize = 0
     @Published var bufferOffset = 0
@@ -50,6 +51,19 @@ final class AppModel: ObservableObject {
     private var cleanSHA256 = ""
     private var lastSearch: Data?
     private var lastFoundOffset: Int?
+    var bufferSourceDescription: String? {
+        guard bufferSize > 0, let lastFile else { return nil }
+        if let bufferChip {
+            return "Buffer: \(lastFile.lastPathComponent) · read from \(bufferChip)"
+        }
+        return "Buffer: \(lastFile.lastPathComponent) · opened from file"
+    }
+
+    var bufferSourceWarning: String? {
+        guard let bufferChip, !selectedChip.isEmpty, bufferChip != selectedChip else { return nil }
+        return "This buffer was read from \(bufferChip), not the selected \(selectedChip)."
+    }
+
     var canReadSelected: Bool {
         ChipPolicy.canRead(selectedChip, details: chipDetails, isT76: isT76)
     }
@@ -161,6 +175,7 @@ final class AppModel: ObservableObject {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = selectedChip.replacingOccurrences(of: "@", with: "_") + ".bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let chip = selectedChip
         let largeRaw = (chipDetails?.codeBytes ?? 0) > ChipPolicy.maxImageBytes
         if largeRaw && ["hex", "ihex", "s19", "s28", "s37", "srec"].contains(url.pathExtension.lowercased()) {
             status = "Error: Chips larger than 256 MiB require a raw dump (.bin)."
@@ -180,9 +195,10 @@ final class AppModel: ObservableObject {
                 self.cleanSHA256 = self.bufferSHA256
                 self.bufferDirty = false
                 self.lastFile = nil
+                self.bufferChip = nil
                 self.status = message + " The raw dump is too large for the in-app hex buffer."
             } else {
-                self.openImage(url, successStatus: message)
+                self.openImage(url, successStatus: message, originChip: chip)
             }
         }
     }
@@ -737,7 +753,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func openImage(_ url: URL, successStatus: String? = nil) {
+    private func openImage(_ url: URL, successStatus: String? = nil, originChip: String? = nil) {
         do {
             let directory = try makePrivateTemporaryDirectory()
             let raw = directory.appendingPathComponent("image.bin")
@@ -746,6 +762,7 @@ final class AppModel: ObservableObject {
             }) { [weak self] _ in
                 guard let self, self.loadBuffer(raw) else { return }
                 self.lastFile = url
+                self.bufferChip = originChip
                 if let successStatus {
                     self.status = successStatus
                 } else {

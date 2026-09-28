@@ -46,7 +46,7 @@ The MX66L1G45G database entry also lists 512 data bytes. The current Read
 action saves the 128 MiB code region; record the 512-byte auxiliary region
 separately when multi-region support is implemented.
 
-### Observed result so far
+### Observed results
 
 On the target Mac, the user reported that the T76 connected directly through
 the supplied USB cable as firmware `00.1.18` over USB High Speed. This
@@ -70,10 +70,25 @@ the separate 512-byte data region in these dumps.
 
 The original pre-program image and any original pre-program dump have not yet
 been established in this record; the user was unsure whether a dump was saved
-before Program. The second photographed chip has not yet been read. The Hex
-buffer shown immediately after Program was
-not automatically refreshed from the chip; only the subsequent Read results
-above are evidence of a post-program dump.
+before Program. The Hex buffer shown immediately after Program was not
+automatically refreshed from the chip; only the subsequent Read results above
+are evidence of a post-program dump.
+
+For the photographed `MX25L51245GMI-08G`, the user reported **Detect ID**
+`C2201A`, selected `MX25L51245G@SOIC16`, and saved `MX25-read-1.bin` and
+`MX25-read-2.bin`. Both files are 67,108,864 bytes, both have SHA-256
+`c9a54490897ea9dfc24eaf136dd7663a87b56c890e98715ee05c531dc5807ef9`,
+and external `cmp -s` exited with status `0`. The app reported “Chip contents
+match the file” after Verify Against File. This validates a stable full code
+region read of the current MX25 contents. MX25 programming and erase have not
+been tested on this Mac.
+
+The MX25 screenshot's Hex panel still shows the 134,217,728-byte MX66 buffer
+and its `2efabaa8…` SHA-256. Selecting or detecting another chip does not
+replace the buffer. The app now labels the source file and source chip and
+warns when the selected chip differs. Use **Read…** or **Open File…** to inspect
+the MX25 dump in Hex; the shell size, hash, and comparison output above are
+the evidence for the two MX25 files.
 
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 
@@ -110,6 +125,6 @@ disposable parts. The GUI now exposes database-driven program and erase
 controls where an electronic ID and erase capability are present. Do not use
 them on the requested Macronix parts until their placement, repeated full
 reads, and original backup have been checked. Test mutation first on a
-disposable rewritable part. The observed MX66L1G45G programming and repeated
-read passes above do not replace the remaining original-backup and second-chip
-checks.
+disposable rewritable part. The observed MX66L1G45G programming and both
+chips' repeated read passes do not establish an original MX66 backup or
+validate MX25 write/erase.
