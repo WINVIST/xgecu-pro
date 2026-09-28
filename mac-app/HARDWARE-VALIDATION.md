@@ -30,6 +30,10 @@ For each part, use **Auto Detect SOIC16** and record the reported JEDEC ID and
 selected `@SOIC16` database entry. Confirm the marking and adapter placement,
 run **Detect ID**, then use **Read…** twice and save two separate raw `.bin` files.
 If autodetect fails, record the full error before trying the manual search.
+If **Detect ID** or **Read…** reports overcurrent, stop chip operations and
+save the Log text. Do not rotate the chip in the adapter to work around that
+message. The T76 transaction setup may differ from the autodetect probe; a
+successful JEDEC probe alone does not prove that the read setup is safe.
 Each Read action also performs an internal second read; the two saved files
 provide an external comparison.
 
