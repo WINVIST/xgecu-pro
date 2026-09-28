@@ -50,3 +50,25 @@ jobs:
           test -x "$app/Contents/Resources/minipro"
           test "$(lipo -archs "$app/Contents/MacOS/XGecuPro")" = arm64
           test "$(lipo -archs "$app/Contents/Resources/minipro")" = arm64
+
+      - name: Package unsigned macOS app
+        run: |
+          app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
+          archive="$RUNNER_TEMP/XGecuPro-macOS-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
+          unzip -t "$archive"
+          mkdir "$RUNNER_TEMP/repacked"
+          ditto -x -k "$archive" "$RUNNER_TEMP/repacked"
+          test -x "$RUNNER_TEMP/repacked/XGecuPro.app/Contents/MacOS/XGecuPro"
+          test -x "$RUNNER_TEMP/repacked/XGecuPro.app/Contents/Resources/minipro"
+          (cd "$RUNNER_TEMP" && shasum -a 256 XGecuPro-macOS-arm64.zip > XGecuPro-macOS-arm64.zip.sha256)
+
+      - name: Upload installable app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: XGecuPro-macOS-arm64-unsigned
+          path: |
+            ${{ runner.temp }}/XGecuPro-macOS-arm64.zip
+            ${{ runner.temp }}/XGecuPro-macOS-arm64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30

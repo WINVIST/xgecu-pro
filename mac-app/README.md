@@ -11,6 +11,28 @@ The [macOS CI workflow](../.github/workflows/macos.yml) builds the arm64 app and
 runs the Rust tests on a GitHub-hosted macOS 26 runner. Hardware acceptance still
 requires the target Mac and a connected T76.
 
+## Install a prebuilt CI app
+
+This path does not require Xcode or Rust on your Mac:
+
+1. Sign in to GitHub and open the latest successful `macOS arm64` run for `main`
+   on the [Actions page](https://github.com/WINVIST/xgecu-pro/actions/workflows/macos.yml).
+2. Under **Artifacts**, download `XGecuPro-macOS-arm64-unsigned`. GitHub gives
+   you an outer ZIP containing `XGecuPro-macOS-arm64.zip` and its `.sha256` file.
+3. Extract the outer ZIP. In Terminal, from that folder, run
+   `shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256`. After it reports `OK`,
+   extract `XGecuPro-macOS-arm64.zip` and move `XGecuPro.app` to
+   **Applications**. Keep the inner ZIP if you want a copy of the exact build.
+4. Open the app. This CI build is unsigned and not notarized. If macOS blocks
+   it, use **System Settings → Privacy & Security → Open Anyway** after the
+   first open attempt. Approve only the artifact from your fork's successful
+   workflow run. See [Apple's instructions](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac).
+
+The archive contains the Apple Silicon app and bundled `minipro` helper. It
+does not contain the vendor database or firmware. The app retrieves the pinned
+database source on first use unless you select a local extracted database.
+GitHub workflow artifacts expire; download a new successful run when needed.
+
 ## Build on the Mac
 
 1. Copy or clone this entire repository to the Mac. The Windows checkout is

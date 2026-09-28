@@ -1,8 +1,9 @@
 # XGecu Pro for macOS — implementation plan
 
-Target: MacBook Pro M3, macOS 26.7, XGecu T76. The first milestone is a local,
-unsigned SwiftUI app built from source on that Mac. Keep the existing Rust CLI
-as the hardware backend and preserve its JSON interface so the GUI cannot
+Target: MacBook Pro M3, macOS 26.7, XGecu T76. The first milestone is an
+unsigned SwiftUI app built on macOS CI for installation on that Mac; a local
+source build remains available. Keep the existing Rust CLI as the hardware
+backend and preserve its JSON interface so the GUI cannot
 silently change programmer protocol behavior.
 
 ## 1. First usable build — implemented in source
@@ -10,6 +11,8 @@ silently change programmer protocol behavior.
 - Create the fork and track upstream separately.
 - Keep all interface text and project documentation in English.
 - Build the Rust helper from the checked-in lockfile as part of the Xcode app.
+- Publish an unsigned Apple Silicon app archive from successful macOS CI runs
+  so the target Mac can install it without a local Xcode or Rust build.
 - Show programmer identity, search and select chips, detect ID, read, save,
   preview, blank-check, compare with a file, write with dry-run and read-back
   verification, and erase.
@@ -30,8 +33,9 @@ target-Mac and T76 acceptance steps.
 Follow the [target-Mac validation checklist](HARDWARE-VALIDATION.md) and retain
 the recorded results with the original dumps.
 
-1. Build the Release scheme on macOS 26.7 with Xcode and Rust for
-   `aarch64-apple-darwin`; resolve any SDK or Swift compiler errors.
+1. Install the successful CI archive on macOS 26.7, or build the Release scheme
+   locally with Xcode and Rust for `aarch64-apple-darwin`; resolve any install,
+   SDK, or Swift compiler errors on the target Mac.
 2. Test the supplied USB cable directly on the target Mac and record the
    negotiated link speed in macOS System Information (USB) and the result of
    the app's **Connect / Refresh** action. If it negotiates SuperSpeed,
@@ -85,8 +89,9 @@ the recorded results with the original dumps.
 - Expand the supported T76 chip list beyond the two requested Macronix parts
   one class at a time after hardware tests;
   NAND/eMMC require the proper adapters and recovery checks.
-- Diagnostics, batch workflows, and optional local release packaging after the
-  core flows are reliable. Broader programmer families require their own
+- Diagnostics, batch workflows, and Developer ID signing/notarization for
+  frictionless distribution after the core flows are reliable. Broader
+  programmer families require their own
   hardware acceptance.
 
 Keep feature scope and tested chip families in [README.md](README.md). The
