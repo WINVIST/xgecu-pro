@@ -42,10 +42,9 @@ target-Mac and T76 acceptance steps.
 ## 3. Closer parity with the original application
 
 - Implemented in source: paged full-image hex buffer (64 MiB limit), file
-  open/save, address jump, hex byte search, per-byte editing, range fill,
-  undo/redo, SHA-256, and offline byte-for-byte file comparison. Buffer edits
-  have Swift package tests in CI.
-- Add block copy/export and ASCII search.
+  open/save, address jump, HEX and ASCII search, per-byte editing, range fill,
+  block copy/export, undo/redo, SHA-256, and offline byte-for-byte file
+  comparison. Buffer edits have Swift package tests in CI.
 - Add fuse/config/lock operations, multi-region memories, and
   package/socket diagrams when their CLI path and chip metadata are verified.
 - Expand the supported T76 chip list one class at a time after hardware tests;

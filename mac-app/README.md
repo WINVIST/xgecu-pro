@@ -53,7 +53,11 @@ edited buffers with **Save As…** before choosing a file to program; the
 changes. The app shows the buffer's SHA-256 digest and compares it byte for byte
 with another local file, reporting the first differing address or a size
 difference. You can edit an individual byte or fill a range, then undo and redo
-edits. The app asks before discarding unsaved changes on a new read or open.
+edits. Search accepts printable ASCII text as well as HEX bytes. Block addresses
+are inclusive: **Copy** duplicates a source block at a destination address in
+the buffer, even when the ranges overlap; **Export…** writes the selected block
+to a separate raw file. The app asks before discarding unsaved changes on a new
+read or open.
 
 The GUI enables read and ID checks for AT27C256R, MX27C2000, W27C512, and
 W27C257 entries. Write and erase are limited to W27C512 and W27C257, whose

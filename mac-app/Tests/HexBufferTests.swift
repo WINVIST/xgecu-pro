@@ -42,4 +42,30 @@ final class HexBufferTests: XCTestCase {
         XCTAssertFalse(buffer.canUndo)
         XCTAssertFalse(buffer.canRedo)
     }
+
+    func testBlockExportUsesInclusiveEnd() throws {
+        let buffer = HexBuffer(bytes: Data([0x10, 0x20, 0x30, 0x40]))
+        XCTAssertEqual(try buffer.block(start: 1, end: 2), Data([0x20, 0x30]))
+        XCTAssertThrowsError(try buffer.block(start: 2, end: 4))
+    }
+
+    func testOverlappingCopyUsesSourceSnapshotAndCanUndo() throws {
+        var buffer = HexBuffer(bytes: Data([0x01, 0x02, 0x03, 0x04, 0x05]))
+        try buffer.copyBlock(start: 0, end: 2, to: 1)
+        XCTAssertEqual(buffer.bytes, Data([0x01, 0x01, 0x02, 0x03, 0x05]))
+        buffer.undo()
+        XCTAssertEqual(buffer.bytes, Data([0x01, 0x02, 0x03, 0x04, 0x05]))
+        buffer.redo()
+        XCTAssertEqual(buffer.bytes, Data([0x01, 0x01, 0x02, 0x03, 0x05]))
+        XCTAssertThrowsError(try buffer.copyBlock(start: 0, end: 2, to: 3))
+    }
+
+    func testByteSearchWrapsAndRejectsEmptyNeedle() {
+        let buffer = HexBuffer(bytes: Data("ABCDAB".utf8))
+        XCTAssertEqual(buffer.find(Data("AB".utf8), from: 1), 4)
+        XCTAssertEqual(buffer.find(Data("AB".utf8), from: 5), 0)
+        XCTAssertEqual(buffer.find(Data("BC".utf8), from: 2), 1)
+        XCTAssertNil(buffer.find(Data(), from: 0))
+        XCTAssertNil(buffer.find(Data("AB".utf8), from: -1))
+    }
 }

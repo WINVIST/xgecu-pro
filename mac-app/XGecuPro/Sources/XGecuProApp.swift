@@ -122,6 +122,14 @@ private struct ContentView: View {
                         }
                         .disabled(model.busy || model.bufferSize == 0)
                         HStack {
+                            TextField("Find ASCII text", text: $model.asciiFindText)
+                                .frame(width: 220)
+                                .onSubmit { model.findASCII() }
+                            Button("Find ASCII") { model.findASCII() }
+                            Spacer()
+                        }
+                        .disabled(model.busy || model.bufferSize == 0)
+                        HStack {
                             Text("Fill 0x")
                             TextField("start", text: $model.fillStartText).frame(width: 80)
                             Text("…0x")
@@ -129,6 +137,17 @@ private struct ContentView: View {
                             Text("with 0x")
                             TextField("FF", text: $model.fillByteText).frame(width: 46)
                             Button("Apply…") { model.fillRange() }
+                        }
+                        .disabled(model.busy || model.bufferSize == 0)
+                        HStack {
+                            Text("Block 0x")
+                            TextField("start", text: $model.blockStartText).frame(width: 80)
+                            Text("…0x")
+                            TextField("end", text: $model.blockEndText).frame(width: 80)
+                            Text("to 0x")
+                            TextField("destination", text: $model.blockDestinationText).frame(width: 90)
+                            Button("Copy") { model.copyBlock() }
+                            Button("Export…") { model.exportBlock() }
                         }
                         .disabled(model.busy || model.bufferSize == 0)
                         HStack {

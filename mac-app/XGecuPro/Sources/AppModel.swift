@@ -29,9 +29,13 @@ final class AppModel: ObservableObject {
     @Published var byteAddressText = "0"
     @Published var byteValueText = "FF"
     @Published var findText = ""
+    @Published var asciiFindText = ""
     @Published var fillStartText = "0"
     @Published var fillEndText = "0"
     @Published var fillByteText = "FF"
+    @Published var blockStartText = "0"
+    @Published var blockEndText = "0"
+    @Published var blockDestinationText = "0"
 
     private let runner = MiniProRunner()
     private let maxBufferBytes = 64 * 1024 * 1024
@@ -228,6 +232,7 @@ final class AppModel: ObservableObject {
     func previousPage() {
         guard bufferOffset > 0 else { return }
         bufferOffset = max(0, bufferOffset - pageBytes)
+        lastSearch = nil
         lastFoundOffset = nil
         addressText = String(bufferOffset, radix: 16).uppercased()
         renderPage()
@@ -236,6 +241,7 @@ final class AppModel: ObservableObject {
     func nextPage() {
         guard bufferOffset + pageBytes < bufferSize else { return }
         bufferOffset += pageBytes
+        lastSearch = nil
         lastFoundOffset = nil
         addressText = String(bufferOffset, radix: 16).uppercased()
         renderPage()
@@ -248,6 +254,7 @@ final class AppModel: ObservableObject {
             return
         }
         bufferOffset = (address / pageBytes) * pageBytes
+        lastSearch = nil
         lastFoundOffset = nil
         renderPage()
     }
@@ -270,19 +277,81 @@ final class AppModel: ObservableObject {
             status = "Error: Invalid HEX byte sequence."
             return
         }
-        let start = min(bufferSize, lastSearch == needle ? (lastFoundOffset ?? bufferOffset) + 1 : bufferOffset)
-        let match = buffer.bytes.range(of: needle, in: start..<bufferSize)
-            ?? buffer.bytes.range(of: needle, in: 0..<start)
+        findBytes(needle)
+    }
+
+    func findASCII() {
+        guard bufferSize > 0 else { return }
+        let text = asciiFindText
+        guard !text.isEmpty, text.utf8.count <= 256,
+              text.unicodeScalars.allSatisfy({ (0x20...0x7E).contains($0.value) }) else {
+            status = "Error: Enter 1 to 256 printable ASCII characters."
+            return
+        }
+        findBytes(Data(text.utf8))
+    }
+
+    private func findBytes(_ needle: Data) {
+        let requested = parseHexNumber(addressText)
+        let first = requested.flatMap { $0 >= 0 && $0 < bufferSize ? $0 : nil } ?? bufferOffset
+        let start = lastSearch == needle && lastFoundOffset != nil
+            ? min(bufferSize, (lastFoundOffset ?? 0) + 1)
+            : first
+        let match = buffer.find(needle, from: start)
         guard let match else {
             status = "Byte sequence not found."
             return
         }
-        bufferOffset = (match.lowerBound / pageBytes) * pageBytes
+        bufferOffset = (match / pageBytes) * pageBytes
         lastSearch = needle
-        lastFoundOffset = match.lowerBound
-        addressText = String(match.lowerBound, radix: 16).uppercased()
+        lastFoundOffset = match
+        addressText = String(match, radix: 16).uppercased()
         renderPage()
-        status = String(format: "Found at address 0x%X.", match.lowerBound)
+        status = String(format: "Found at address 0x%X.", match)
+    }
+
+    func copyBlock() {
+        guard !busy, bufferSize > 0 else { return }
+        guard let start = parseHexNumber(blockStartText),
+              let end = parseHexNumber(blockEndText),
+              let destination = parseHexNumber(blockDestinationText) else {
+            status = "Error: Enter valid HEX block and destination addresses."
+            return
+        }
+        do {
+            try buffer.copyBlock(start: start, end: end, to: destination)
+        } catch {
+            status = "Error: Block or destination is outside the buffer."
+            return
+        }
+        focusEdit(at: destination)
+        updateBufferState()
+        status = String(format: "Copied 0x%X…0x%X to 0x%X. Save the buffer before programming.", start, end, destination)
+    }
+
+    func exportBlock() {
+        guard !busy, bufferSize > 0 else { return }
+        guard let start = parseHexNumber(blockStartText),
+              let end = parseHexNumber(blockEndText) else {
+            status = "Error: Enter a valid HEX block range."
+            return
+        }
+        let block: Data
+        do {
+            block = try buffer.block(start: start, end: end)
+        } catch {
+            status = "Error: Block range is outside the buffer."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = String(format: "block_%X_%X.bin", start, end)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try block.write(to: url, options: .atomic)
+            status = "Exported \(block.count) bytes to \(url.lastPathComponent)."
+        } catch {
+            status = "Error: Could not export the block (\(englishErrorDetails(error)))."
+        }
     }
 
     func fillRange() {
@@ -348,6 +417,7 @@ final class AppModel: ObservableObject {
         bufferOffset = (address / pageBytes) * pageBytes
         addressText = String(address, radix: 16).uppercased()
         byteAddressText = addressText
+        lastSearch = nil
         lastFoundOffset = nil
     }
 
