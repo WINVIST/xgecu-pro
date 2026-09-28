@@ -23,6 +23,8 @@ private struct ContentView: View {
                         Text(model.deviceStatus).font(.callout)
                         Button("Connect / Refresh") { model.connect() }
                             .disabled(model.busy)
+                        Button("Auto Detect SOIC16") { model.autoDetectSOIC16() }
+                            .disabled(model.busy)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

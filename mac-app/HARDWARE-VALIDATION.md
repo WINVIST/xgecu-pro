@@ -26,8 +26,11 @@ and the manufacturer's verified pin-1 and placement instructions. The package
 name in the app is not a placement diagram. Keep the original chips untouched
 until placement and voltage are confirmed.
 
-For each part, select the corresponding database entry, run **Detect ID**, then
-use **Read…** twice and save two separate raw `.bin` files. Each Read action
+For each part, use **Auto Detect SOIC16** and record the reported JEDEC ID and
+suggested entry. Select the corresponding `@SOIC16` database entry, run
+**Detect ID**, then use **Read…** twice and save two separate raw `.bin` files.
+If autodetect fails, record the full error before trying the manual search.
+Each Read action
 also performs an internal second read; the two saved files provide an external
 comparison.
 

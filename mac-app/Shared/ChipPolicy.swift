@@ -47,6 +47,15 @@ enum ChipPolicy {
         requestedReadOnly[name.uppercased()] != nil
     }
 
+    static func supportedSOIC16Candidates(forJEDECID id: String) -> [String] {
+        let normalized = id.uppercased()
+        guard normalized.count == 6, normalized.allSatisfy({ $0.isHexDigit }) else { return [] }
+        return requestedReadOnly
+            .filter { $0.value.id == normalized }
+            .map { $0.key }
+            .sorted()
+    }
+
     static func canRead(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
         guard isT76, let details else { return false }
         let normalized = name.uppercased()

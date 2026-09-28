@@ -82,6 +82,33 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func autoDetectSOIC16() {
+        guard !busy else { return }
+        guard isT76 else {
+            status = "Click Connect / Refresh before detecting a chip."
+            return
+        }
+        // A failed or unfamiliar ID must leave chip operations disabled.
+        selectedChip = ""
+        chipDetails = nil
+        hits = []
+        perform(["autodetect", "--wide"]) { [weak self] result in
+            guard let self else { return }
+            let id = result["id"] as? String ?? ""
+            guard id.count == 6, id.allSatisfy({ $0.isHexDigit }) else {
+                self.status = "Error: The programmer returned an invalid JEDEC ID."
+                return
+            }
+            let candidates = ChipPolicy.supportedSOIC16Candidates(forJEDECID: id)
+            self.hits = candidates
+            if candidates.isEmpty {
+                self.status = "Detected JEDEC ID 0x\(id.uppercased()). No supported SOIC16 chip matches it. Check the chip and adapter placement."
+            } else {
+                self.status = "Detected JEDEC ID 0x\(id.uppercased()). Select the suggested chip to load its database details, then use Read."
+            }
+        }
+    }
+
     func selectChip(_ chip: String) {
         guard !busy else { return }
         selectedChip = chip

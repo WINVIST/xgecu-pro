@@ -32,6 +32,15 @@ final class ChipPolicyTests: XCTestCase {
         }
     }
 
+    func testSOIC16AutodetectOnlySuggestsRequestedMacronixParts() {
+        XCTAssertEqual(ChipPolicy.supportedSOIC16Candidates(forJEDECID: "c2201a"),
+                       ["MX25L51245G@SOIC16"])
+        XCTAssertEqual(ChipPolicy.supportedSOIC16Candidates(forJEDECID: "C22019"),
+                       ["MX25L25645G@SOIC16"])
+        XCTAssertTrue(ChipPolicy.supportedSOIC16Candidates(forJEDECID: "FFFFFF").isEmpty)
+        XCTAssertTrue(ChipPolicy.supportedSOIC16Candidates(forJEDECID: "C2201A00").isEmpty)
+    }
+
     func testRequestedPartRejectsMismatchedDatabaseDetails() throws {
         let name = "MX25L51245G@SOIC16"
         let original = details(name, bytes: 67_108_864, id: "C2201A")

@@ -98,9 +98,14 @@ used through a USB 2.0 hub if its connectors fit. No ISP/ICSP cable is needed
 for this socket-based workflow. See [ROADMAP.md](ROADMAP.md) for the direct
 cable acceptance test.
 
-Connect the T76 over a working High Speed link. Click
-**Connect / Refresh**, search for a chip, select it, and use **Detect ID** or
-**Read…**. **Blank Check** compares the entire code region with the
+Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
+For either requested Macronix chip in a verified SOIC16 adapter, click
+**Auto Detect SOIC16** and select the suggested database entry. The app probes
+the JEDEC ID but does not enable reading until the selected entry's package,
+capacity, and ID match the supported profile. Alternatively, search for the
+chip name and select its exact `@SOIC16` entry. Then use **Read…**. The separate
+**Detect ID** action rechecks the selected chip's ID. **Blank Check** compares
+the entire code region with the
 chip's erased value. Selecting a chip also shows its database package, pin
 count, memory region sizes, page size, expected electronic ID, and erased value
 without connecting the programmer. The package label is not a socket placement

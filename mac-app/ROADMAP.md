@@ -16,6 +16,8 @@ silently change programmer protocol behavior.
 - Show programmer identity, search and select chips, detect ID, read, save,
   preview, blank-check, compare with a file, write with dry-run and read-back
   verification, and erase.
+- Suggest either requested Macronix SOIC16 database entry from a T76 JEDEC
+  autodetect result while keeping unsupported IDs and mutation disabled.
 - Serialize operations and require an explicit confirmation for destructive
   operations. Restrict them to the T76 and the parts already exercised on
   hardware upstream.
