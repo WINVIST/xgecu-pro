@@ -46,7 +46,9 @@ also open local files, jump to a hex address, find a byte sequence, and fill an
 inclusive address range with one byte. It accepts raw files up to 64 MiB. Save
 edited buffers with **Сохранить как…** before choosing a file to program; the
 **Записать…** action programs the file selected in its dialog, not unsaved buffer
-changes. The app asks before discarding unsaved changes on a new read or open.
+changes. The app shows the buffer's SHA-256 digest and compares it byte for byte
+with another local file, reporting the first differing address or a size
+difference. The app asks before discarding unsaved changes on a new read or open.
 
 The GUI enables read and ID checks for AT27C256R, MX27C2000, W27C512, and
 W27C257 entries. Write and erase are limited to W27C512 and W27C257, whose

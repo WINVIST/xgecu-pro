@@ -92,9 +92,17 @@ private struct ContentView: View {
                                 .disabled(model.busy)
                             Button("Сохранить как…") { model.saveBuffer() }
                                 .disabled(model.busy || model.bufferSize == 0)
+                            Button("Сравнить с файлом…") { model.compareBufferToFile() }
+                                .disabled(model.busy || model.bufferSize == 0)
                             Spacer()
                             Text(model.bufferSize == 0 ? "Буфер пуст" : "\(model.bufferSize) байт" + (model.bufferDirty ? " · изменён" : ""))
                                 .foregroundStyle(.secondary)
+                        }
+                        if model.bufferSize > 0 {
+                            Text("SHA-256: \(model.bufferSHA256)")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
                         }
                         HStack {
                             Button("‹") { model.previousPage() }

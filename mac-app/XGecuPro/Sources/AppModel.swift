@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -21,6 +22,7 @@ final class AppModel: ObservableObject {
     @Published var bufferSize = 0
     @Published var bufferOffset = 0
     @Published var bufferDirty = false
+    @Published var bufferSHA256 = ""
     @Published var addressText = "0"
     @Published var findText = ""
     @Published var fillStartText = "0"
@@ -195,6 +197,28 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func compareBufferToFile() {
+        guard !busy, bufferSize > 0 else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let other = try readBoundedFile(url)
+            let common = min(buffer.count, other.count)
+            if buffer == other {
+                status = "Буфер полностью совпадает с \(url.lastPathComponent)."
+            } else {
+                let mismatch = zip(buffer.prefix(common), other.prefix(common))
+                    .enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset ?? common
+                status = String(format: "Различие с %@ по адресу 0x%X (размеры: %d и %d байт).",
+                                url.lastPathComponent, mismatch, buffer.count, other.count)
+            }
+        } catch {
+            status = "Не удалось сравнить файлы: \(error.localizedDescription)"
+        }
+    }
+
     func previousPage() {
         guard bufferOffset > 0 else { return }
         bufferOffset = max(0, bufferOffset - pageBytes)
@@ -272,6 +296,7 @@ final class AppModel: ObservableObject {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         buffer.replaceSubrange(start...end, with: Data(repeating: UInt8(value), count: end - start + 1))
         bufferDirty = true
+        updateChecksum()
         lastFoundOffset = nil
         bufferOffset = (start / pageBytes) * pageBytes
         addressText = String(start, radix: 16).uppercased()
@@ -346,22 +371,8 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     private func loadBuffer(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else {
-            status = "Не удалось открыть дамп."
-            return false
-        }
-        defer { try? handle.close() }
         do {
-            var bytes = Data()
-            while bytes.count <= maxBufferBytes {
-                let chunk = try handle.read(upToCount: min(1024 * 1024, maxBufferBytes + 1 - bytes.count)) ?? Data()
-                if chunk.isEmpty { break }
-                bytes.append(chunk)
-            }
-            guard !bytes.isEmpty, bytes.count <= maxBufferBytes else {
-                status = "Размер дампа должен быть от 1 байта до 64 МиБ."
-                return false
-            }
+            let bytes = try readBoundedFile(url)
             buffer = bytes
             bufferSize = bytes.count
             bufferOffset = 0
@@ -370,6 +381,7 @@ final class AppModel: ObservableObject {
             lastSearch = nil
             lastFoundOffset = nil
             lastFile = url
+            updateChecksum()
             renderPage()
             status = "Дамп загружен: \(url.lastPathComponent), \(bytes.count) байт."
             return true
@@ -377,6 +389,33 @@ final class AppModel: ObservableObject {
             status = "Не удалось прочитать дамп: \(error.localizedDescription)"
             return false
         }
+    }
+
+    private func readBoundedFile(_ url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var bytes = Data()
+        while bytes.count <= maxBufferBytes {
+            let chunk = try handle.read(upToCount: min(1024 * 1024, maxBufferBytes + 1 - bytes.count)) ?? Data()
+            if chunk.isEmpty { break }
+            bytes.append(chunk)
+        }
+        guard !bytes.isEmpty, bytes.count <= maxBufferBytes else {
+            throw BufferError.invalidSize
+        }
+        return bytes
+    }
+
+    private enum BufferError: LocalizedError {
+        case invalidSize
+
+        var errorDescription: String? {
+            "Размер дампа должен быть от 1 байта до 64 МиБ."
+        }
+    }
+
+    private func updateChecksum() {
+        bufferSHA256 = SHA256.hash(data: buffer).map { String(format: "%02x", $0) }.joined()
     }
 
     private func renderPage() {

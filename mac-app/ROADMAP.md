@@ -38,9 +38,9 @@ build and the hardware checks below pass on the target Mac.
 ## 3. Closer parity with the original application
 
 - Implemented in source: paged full-image hex buffer (64 MiB limit), file
-  open/save, address jump, hex byte search, and range fill.
-- Add per-byte editing, undo/redo, offline file-to-file compare, checksums,
-  block copy/export, and ASCII search.
+  open/save, address jump, hex byte search, range fill, SHA-256, and offline
+  byte-for-byte file comparison.
+- Add per-byte editing, undo/redo, block copy/export, and ASCII search.
 - Add fuse/config/lock operations, multi-region memories, and
   package/socket diagrams when their CLI path and chip metadata are verified.
 - Expand the supported T76 chip list one class at a time after hardware tests;
