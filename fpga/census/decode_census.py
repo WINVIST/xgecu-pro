@@ -36,9 +36,11 @@ def crc16(data):
     return c
 
 
-def frames(stream, nbytes, ndetail):
+def frames(stream, nbytes, ndetail, npins):
     """Yield (snapshot, ever_low, ever_high, edges, stats) from a byte stream."""
     HDR = 8
+    if nbytes != (npins + 7) // 8 or not 0 < npins <= 255 or not 0 <= ndetail <= npins:
+        raise ValueError("invalid pinmap dimensions")
     edge_off = HDR + 3 * nbytes
     stat_off = edge_off + 2 * ndetail
     buf = bytearray()
@@ -52,7 +54,16 @@ def frames(stream, nbytes, ndetail):
             if len(buf) - i < HDR:
                 del buf[:i]
                 break
+            # The header is part of an untrusted serial/file capture. A bad
+            # count must not drive indexing outside the configured layout.
+            # Skip one preamble byte so a later valid frame can resynchronize.
+            if buf[i + 4] != 0x03 or buf[i + 5] != npins or buf[i + 6] != ndetail:
+                del buf[:i + 1]
+                continue
             capn = buf[i + 7]
+            if capn > 63:  # current FPGA has a 63-word capture buffer
+                del buf[:i + 1]
+                continue
             cap_off = stat_off + 4
             flen = cap_off + 2 * capn + 2
             if len(buf) - i < flen:
@@ -60,13 +71,9 @@ def frames(stream, nbytes, ndetail):
                 break
             f = bytes(buf[i:i + flen])
             del buf[:i + flen]
-            if f[4] != 0x03:
-                continue
             if crc16(f[4:cap_off + 2 * capn]) != (f[flen - 2] << 8 | f[flen - 1]):
                 print("  (frame with bad CRC skipped)", file=sys.stderr)
                 continue
-            npins = f[5]
-
             def bits(off):
                 return [(f[HDR + off + j // 8] >> (j % 8)) & 1 for j in range(npins)]
 
@@ -129,7 +136,7 @@ def main():
     else:
         stream = iter([Path(src).read_bytes()])
 
-    for snap, lo, hi, edges, stats in frames(stream, nbytes, ndetail):
+    for snap, lo, hi, edges, stats in frames(stream, nbytes, ndetail, len(pins)):
         print("=" * 72)
         if raw:
             for p in pins:

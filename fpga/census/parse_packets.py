@@ -56,7 +56,7 @@ def words_from_capture(path):
     pm = json.loads((HERE / "pinmap.json").read_text())
     best = None
     for *_ , st in d.frames(iter([Path(path).read_bytes()]),
-                            pm["nbytes"], pm.get("ndetail", 32)):
+                            pm["nbytes"], pm.get("ndetail", 32), len(pm["pins"])):
         if st["bursts"]:
             best = st["words"]
     return best or []
