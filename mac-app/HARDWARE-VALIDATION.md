@@ -48,16 +48,32 @@ separately when multi-region support is implemented.
 
 ### Observed result so far
 
-On the target Mac, the user reported that the T76 connected as firmware
-`00.1.18` over USB High Speed, and that **Auto Detect SOIC16** offered
-`MX66L1G45G@SOIC16` for the inserted chip. A subsequent **Program…** action
-ended with “Programming completed and verified by a readback.” The Log also
-showed `firmware_mismatch` warnings against the pinned database target. This
-is evidence that one programming pass and its internal readback completed;
-the original image, independent full dumps, external comparison, and second
-photographed chip have not yet been recorded. The Hex buffer shown after
-Program is not automatically refreshed from the chip. Do not treat its size
-or contents as a post-program dump.
+On the target Mac, the user reported that the T76 connected directly through
+the supplied USB cable as firmware `00.1.18` over USB High Speed. This
+establishes a working direct connection, although the System Information USB
+listing has not been retained. **Auto Detect SOIC16** offered
+`MX66L1G45G@SOIC16`; **Detect ID** returned `C2201B` and also listed the
+`MX66L1G85G` variants that share this ID. The printed marking identifies the
+selected `MX66L1G45G@SOIC16` entry. A **Program…** action ended with
+“Programming completed and verified by a readback.” Its Log also showed
+`firmware_mismatch` warnings against the pinned database target.
+
+After Program, two separate **Read…** actions saved `MX66-read-1.bin` and
+`MX66-read-2.bin`. The user reported that each file is 134,217,728 bytes,
+both have SHA-256
+`2efabaa8f50229fa23be3c6472ea169175f592a21d4e56a5c184080dd0c31dec`,
+and external `cmp -s` exited with status `0`. The app reported “Dump saved
+and confirmed by a second read” and “Chip contents match the file” for a
+subsequent Verify Against File operation. This validates a stable full code
+region read of the *current, programmed contents*. The app does not include
+the separate 512-byte data region in these dumps.
+
+The original pre-program image and any original pre-program dump have not yet
+been established in this record; the user was unsure whether a dump was saved
+before Program. The second photographed chip has not yet been read. The Hex
+buffer shown immediately after Program was
+not automatically refreshed from the chip; only the subsequent Read results
+above are evidence of a post-program dump.
 
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 
@@ -94,5 +110,6 @@ disposable parts. The GUI now exposes database-driven program and erase
 controls where an electronic ID and erase capability are present. Do not use
 them on the requested Macronix parts until their placement, repeated full
 reads, and original backup have been checked. Test mutation first on a
-disposable rewritable part. The observed MX66L1G45G programming pass above
-does not replace these remaining checks.
+disposable rewritable part. The observed MX66L1G45G programming and repeated
+read passes above do not replace the remaining original-backup and second-chip
+checks.

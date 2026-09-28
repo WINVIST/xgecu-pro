@@ -126,13 +126,13 @@ in the app to work offline.
 
 ## Use
 
-The supplied USB cable is a target for hardware validation on the MacBook Pro
-M3. If it negotiates SuperSpeed, the current macOS T76 backend reports a
+The supplied USB cable worked directly on the target MacBook Pro M3 at USB
+High Speed for T76 detection and repeated full MX66L1G45G reads. If another
+connection negotiates SuperSpeed, the current macOS T76 backend reports a
 diagnostic because bulk transfers have failed in earlier tests. A USB 2.0
-cable or hub is the working High Speed fallback; the supplied cable can be
-used through a USB 2.0 hub if its connectors fit. No ISP/ICSP cable is needed
-for this socket-based workflow. See [ROADMAP.md](ROADMAP.md) for the direct
-cable acceptance test.
+cable or hub remains a High Speed fallback. No ISP/ICSP cable is needed for
+this socket-based workflow. See [HARDWARE-VALIDATION.md](HARDWARE-VALIDATION.md)
+for the recorded result and remaining checks.
 
 Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
 For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.
@@ -200,10 +200,13 @@ T76 V13.21 database lists them as `MX66L1G45G@SOIC16` (128 MiB,
 ID `C2201B`) and `MX25L51245G@SOIC16` (64 MiB, ID `C2201A`). The GUI enables
 ID detection, read, blank check, file comparison, program, and erase through
 the same database-driven controls as other parts. Their socket placement,
-algorithm behavior, and full read results still require live validation.
-One user-reported T76/macOS programming attempt for `MX66L1G45G@SOIC16`
-completed with backend read-back verification. Independent full read comparison
-and the second target chip remain to be validated.
+algorithm behavior across the wider catalog still requires live validation.
+For `MX66L1G45G@SOIC16`, one user-reported T76/macOS programming attempt
+completed with backend read-back verification. Two subsequent full 128 MiB
+raw reads matched by SHA-256 and external `cmp`, and Verify Against File
+reported a match. These results cover the current programmed code region;
+the pre-program original image/dump and the second target chip remain to be
+validated.
 Preserve two matching original dumps before attempting any destructive operation.
 For MX66L1G45G, **Read…** saves the 128 MiB code region; its separate 512-byte
 data region is outside the current GUI read workflow.

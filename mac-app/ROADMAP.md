@@ -64,14 +64,16 @@ the recorded results with the original dumps.
   and [512 Mbit](https://www.macronix.com/Lists/Datasheet/Attachments/9100/MX25L51245G%2C%203V%2C%20512Mb%2C%20v1.8.pdf)
   datasheets. The pinned T76 V13.21 database contains `MX66L1G45G@SOIC16`
   (128 MiB, ID `C2201B`) and `MX25L51245G@SOIC16` (64 MiB, ID `C2201A`).
-  The GUI exposes database-driven operations for both. Validate the T76
-  algorithm and socket or adapter placement, read each chip twice, compare
-  complete dumps, and retain original backups before using destructive actions
+  The GUI exposes database-driven operations for both. On the target Mac, the
+  MX66L1G45G code region was programmed with backend readback verification;
+  two subsequent full 128 MiB dumps matched by SHA-256 and external `cmp`.
+  Its pre-program backup remains unconfirmed. Validate the second chip with
+  two full reads and retain original backups before using destructive actions
   on disposable examples. Earlier provisional
   `MX25L25645GMI-08G` support is not part of this acceptance target.
-- Support the supplied USB cable on the MacBook Pro M3. Record whether it
-  negotiates High Speed or SuperSpeed. High Speed can be accepted through the
-  existing backend after live tests. The current macOS SuperSpeed path fails
+- Support the supplied USB cable on the MacBook Pro M3. The user confirmed a
+  direct connection with this cable at USB High Speed, including T76 detection
+  and repeated full reads of the MX66L1G45G. The current macOS SuperSpeed path fails
   on T76 bulk transfers and is blocked with a diagnostic; it needs a
   demonstrated firmware/host/hub workaround and repeated live transfers
   before it can be marked supported. The USB 2.0 fallback does not require a
