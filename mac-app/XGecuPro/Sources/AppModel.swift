@@ -23,7 +23,11 @@ final class AppModel: ObservableObject {
     @Published var bufferOffset = 0
     @Published var bufferDirty = false
     @Published var bufferSHA256 = ""
+    @Published var canUndo = false
+    @Published var canRedo = false
     @Published var addressText = "0"
+    @Published var byteAddressText = "0"
+    @Published var byteValueText = "FF"
     @Published var findText = ""
     @Published var fillStartText = "0"
     @Published var fillEndText = "0"
@@ -32,7 +36,8 @@ final class AppModel: ObservableObject {
     private let runner = MiniProRunner()
     private let maxBufferBytes = 64 * 1024 * 1024
     private let pageBytes = 256
-    private var buffer = Data()
+    private var buffer = HexBuffer()
+    private var cleanSHA256 = ""
     private var lastSearch: Data?
     private var lastFoundOffset: Int?
     private let readableNames = ["AT27C256R@", "MX27C2000@", "W27C512@", "W27C257@"]
@@ -188,8 +193,9 @@ final class AppModel: ObservableObject {
         panel.nameFieldStringValue = lastFile?.lastPathComponent ?? "buffer.bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try buffer.write(to: url, options: .atomic)
+            try buffer.bytes.write(to: url, options: .atomic)
             lastFile = url
+            cleanSHA256 = bufferSHA256
             bufferDirty = false
             status = "Buffer saved: \(url.lastPathComponent)."
         } catch {
@@ -205,14 +211,14 @@ final class AppModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let other = try readBoundedFile(url)
-            let common = min(buffer.count, other.count)
-            if buffer == other {
+            let common = min(buffer.bytes.count, other.count)
+            if buffer.bytes == other {
                 status = "The buffer matches \(url.lastPathComponent) byte for byte."
             } else {
-                let mismatch = zip(buffer.prefix(common), other.prefix(common))
+                let mismatch = zip(buffer.bytes.prefix(common), other.prefix(common))
                     .enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset ?? common
                 status = String(format: "Difference from %@ at address 0x%X (sizes: %d and %d bytes).",
-                                url.lastPathComponent, mismatch, buffer.count, other.count)
+                                url.lastPathComponent, mismatch, buffer.bytes.count, other.count)
             }
         } catch {
             status = "Error: Could not compare the files (\(englishErrorDetails(error)))."
@@ -265,8 +271,8 @@ final class AppModel: ObservableObject {
             return
         }
         let start = min(bufferSize, lastSearch == needle ? (lastFoundOffset ?? bufferOffset) + 1 : bufferOffset)
-        let match = buffer.range(of: needle, in: start..<bufferSize)
-            ?? buffer.range(of: needle, in: 0..<start)
+        let match = buffer.bytes.range(of: needle, in: start..<bufferSize)
+            ?? buffer.bytes.range(of: needle, in: 0..<start)
         guard let match else {
             status = "Byte sequence not found."
             return
@@ -294,14 +300,55 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Fill")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        buffer.replaceSubrange(start...end, with: Data(repeating: UInt8(value), count: end - start + 1))
-        bufferDirty = true
-        updateChecksum()
-        lastFoundOffset = nil
-        bufferOffset = (start / pageBytes) * pageBytes
-        addressText = String(start, radix: 16).uppercased()
-        renderPage()
+        do {
+            try buffer.fill(start: start, end: end, value: UInt8(value))
+        } catch {
+            status = "Error: Could not fill the selected range."
+            return
+        }
+        focusEdit(at: start)
+        updateBufferState()
         status = "Buffer modified. Save it before programming."
+    }
+
+    func editByte() {
+        guard !busy, bufferSize > 0 else { return }
+        guard let address = parseHexNumber(byteAddressText),
+              let value = parseHexNumber(byteValueText),
+              address >= 0, address < bufferSize, value >= 0, value <= 0xFF else {
+            status = "Error: Enter a valid HEX address and byte value."
+            return
+        }
+        do {
+            try buffer.setByte(at: address, to: UInt8(value))
+        } catch {
+            status = "Error: Could not edit the selected byte."
+            return
+        }
+        focusEdit(at: address)
+        updateBufferState()
+        status = String(format: "Set byte at 0x%X to 0x%02X. Save the buffer before programming.", address, value)
+    }
+
+    func undoEdit() {
+        guard !busy, let range = buffer.undo() else { return }
+        focusEdit(at: range.lowerBound)
+        updateBufferState()
+        status = "Last buffer edit undone."
+    }
+
+    func redoEdit() {
+        guard !busy, let range = buffer.redo() else { return }
+        focusEdit(at: range.lowerBound)
+        updateBufferState()
+        status = "Buffer edit restored."
+    }
+
+    private func focusEdit(at address: Int) {
+        bufferOffset = (address / pageBytes) * pageBytes
+        addressText = String(address, radix: 16).uppercased()
+        byteAddressText = addressText
+        lastFoundOffset = nil
     }
 
     private func parseHexNumber(_ input: String) -> Int? {
@@ -374,16 +421,17 @@ final class AppModel: ObservableObject {
     private func loadBuffer(_ url: URL) -> Bool {
         do {
             let bytes = try readBoundedFile(url)
-            buffer = bytes
+            buffer.load(bytes)
             bufferSize = bytes.count
             bufferOffset = 0
             addressText = "0"
-            bufferDirty = false
+            byteAddressText = "0"
             lastSearch = nil
             lastFoundOffset = nil
             lastFile = url
-            updateChecksum()
-            renderPage()
+            updateBufferState()
+            cleanSHA256 = bufferSHA256
+            bufferDirty = false
             status = "Dump loaded: \(url.lastPathComponent), \(bytes.count) bytes."
             return true
         } catch {
@@ -427,13 +475,21 @@ final class AppModel: ObservableObject {
     }
 
     private func updateChecksum() {
-        bufferSHA256 = SHA256.hash(data: buffer).map { String(format: "%02x", $0) }.joined()
+        bufferSHA256 = SHA256.hash(data: buffer.bytes).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func updateBufferState() {
+        updateChecksum()
+        bufferDirty = bufferSHA256 != cleanSHA256
+        canUndo = buffer.canUndo
+        canRedo = buffer.canRedo
+        renderPage()
     }
 
     private func renderPage() {
         let end = min(bufferOffset + pageBytes, bufferSize)
         hexPreview = stride(from: bufferOffset, to: end, by: 16).map { offset in
-            let line = buffer[offset..<min(offset + 16, end)]
+            let line = buffer.bytes[offset..<min(offset + 16, end)]
             let hex = line.map { String(format: "%02X", $0) }.joined(separator: " ")
             let ascii = line.map { (32...126).contains(Int($0)) ? String(UnicodeScalar($0)) : "." }.joined()
             let paddedHex = hex.padding(toLength: 47, withPad: " ", startingAt: 0)

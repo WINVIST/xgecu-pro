@@ -52,7 +52,8 @@ edited buffers with **Save As…** before choosing a file to program; the
 **Program…** action programs the file selected in its dialog, not unsaved buffer
 changes. The app shows the buffer's SHA-256 digest and compares it byte for byte
 with another local file, reporting the first differing address or a size
-difference. The app asks before discarding unsaved changes on a new read or open.
+difference. You can edit an individual byte or fill a range, then undo and redo
+edits. The app asks before discarding unsaved changes on a new read or open.
 
 The GUI enables read and ID checks for AT27C256R, MX27C2000, W27C512, and
 W27C257 entries. Write and erase are limited to W27C512 and W27C257, whose
@@ -75,6 +76,8 @@ On a development machine, run:
 cd minipro-rs
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cd ../mac-app
+swift test
 ```
 
 On the Mac, verify the Xcode build, T76 identity and USB High Speed link, then

@@ -31,6 +31,10 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo fmt --all -- --check
 
+      - name: Test hex buffer core
+        working-directory: mac-app
+        run: swift test
+
       - name: Build macOS app
         run: |
           xcodebuild -project mac-app/XGecuPro.xcodeproj \

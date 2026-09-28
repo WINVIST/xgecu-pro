@@ -131,6 +131,19 @@ private struct ContentView: View {
                             Button("Apply…") { model.fillRange() }
                         }
                         .disabled(model.busy || model.bufferSize == 0)
+                        HStack {
+                            Text("Byte at 0x")
+                            TextField("address", text: $model.byteAddressText).frame(width: 90)
+                            Text("= 0x")
+                            TextField("FF", text: $model.byteValueText).frame(width: 46)
+                            Button("Set") { model.editByte() }
+                            Spacer()
+                            Button("Undo") { model.undoEdit() }
+                                .disabled(!model.canUndo)
+                            Button("Redo") { model.redoEdit() }
+                                .disabled(!model.canRedo)
+                        }
+                        .disabled(model.busy || model.bufferSize == 0)
                         ScrollView {
                             Text(model.hexPreview.isEmpty ? "Read a chip or open a dump file." : model.hexPreview)
                                 .font(.system(.body, design: .monospaced))
