@@ -12,6 +12,7 @@
 mod reporters;
 mod tui;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -1324,12 +1325,20 @@ fn convert_image(
     output: &Path,
     output_format: Fmt,
 ) -> Result<usize> {
-    if std::fs::metadata(input)?.len() > CONVERT_INPUT_LIMIT {
+    let file = std::fs::File::open(input)?;
+    if file.metadata()?.len() > CONVERT_INPUT_LIMIT {
         return Err(Error::Format(
             "image file exceeds the 256 MiB input limit".into(),
         ));
     }
-    let source = std::fs::read(input)?;
+    let mut source = Vec::new();
+    file.take(CONVERT_INPUT_LIMIT + 1)
+        .read_to_end(&mut source)?;
+    if source.len() as u64 > CONVERT_INPUT_LIMIT {
+        return Err(Error::Format(
+            "image file exceeds the 256 MiB input limit".into(),
+        ));
+    }
     let image = input_format.for_input(input, &source).parse_with_limit(
         &source,
         minipro_core::format::PAD,

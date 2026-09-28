@@ -139,26 +139,32 @@ fn decode_hex(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Build a flat image from `(address, data)` records: sized to the highest end
-/// address, `pad`-filled, with each record written at its address.
-fn assemble(records: &[(u32, Vec<u8>)], pad: u8, max_len: usize) -> Result<Image> {
-    let mut end = 0usize;
-    for (address, data) in records {
-        let record_end = (*address as usize)
-            .checked_add(data.len())
-            .ok_or_else(|| Error::Format("record address overflow".into()))?;
-        if record_end > max_len {
-            return Err(Error::Format(
-                "image address exceeds selected chip capacity".into(),
-            ));
-        }
-        end = end.max(record_end);
+/// Apply a checked record immediately, without retaining every input record.
+/// Empty data records carry no image bytes, even if their address is high.
+fn apply_record(
+    out: &mut Vec<u8>,
+    address: u32,
+    data: &[u8],
+    pad: u8,
+    max_len: usize,
+) -> Result<()> {
+    if data.is_empty() {
+        return Ok(());
     }
-    let mut out = vec![pad; end];
-    for (a, d) in records {
-        out[*a as usize..*a as usize + d.len()].copy_from_slice(d);
+    let start = address as usize;
+    let end = start
+        .checked_add(data.len())
+        .ok_or_else(|| Error::Format("record address overflow".into()))?;
+    if end > max_len {
+        return Err(Error::Format(
+            "image address exceeds selected chip capacity".into(),
+        ));
     }
-    Ok(Image { bytes: out })
+    if out.len() < end {
+        out.resize(end, pad);
+    }
+    out[start..end].copy_from_slice(data);
+    Ok(())
 }
 
 fn hex_byte(out: &mut String, b: u8) {
@@ -173,7 +179,7 @@ fn parse_ihex(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Error::Format("Intel HEX is not valid ASCII".into()))?;
     let mut base: u32 = 0;
-    let mut records: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut image = Vec::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
@@ -206,7 +212,7 @@ fn parse_ihex(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
                 let absolute = base.checked_add(addr).ok_or_else(|| {
                     Error::Format(format!("Intel HEX line {n}: address overflow"))
                 })?;
-                records.push((absolute, data.to_vec()));
+                apply_record(&mut image, absolute, data, pad, max_len)?;
             }
             0x01 if len == 0 => break,
             0x02 if len == 2 => base = (u16::from_be_bytes([data[0], data[1]]) as u32) << 4,
@@ -224,7 +230,7 @@ fn parse_ihex(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
             }
         }
     }
-    assemble(&records, pad, max_len)
+    Ok(Image { bytes: image })
 }
 
 /// Write one Intel HEX record body `[len, addr_hi, addr_lo, type, data…]` with
@@ -269,7 +275,7 @@ fn emit_ihex(data: &[u8]) -> Vec<u8> {
 fn parse_srec(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Error::Format("S-record is not valid ASCII".into()))?;
-    let mut records: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut image = Vec::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
@@ -319,9 +325,15 @@ fn parse_srec(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
         let addr = rec[1..1 + addr_len]
             .iter()
             .fold(0u32, |a, &b| (a << 8) | b as u32);
-        records.push((addr, rec[1 + addr_len..rec.len() - 1].to_vec()));
+        apply_record(
+            &mut image,
+            addr,
+            &rec[1 + addr_len..rec.len() - 1],
+            pad,
+            max_len,
+        )?;
     }
-    assemble(&records, pad, max_len)
+    Ok(Image { bytes: image })
 }
 
 /// Write one S-record of `kind` (`b'1'`, `b'9'`, …): `S<kind><count><addr><data><cksum>`.
@@ -399,6 +411,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn records_are_applied_with_an_immediate_capacity_check() {
+        let mut bytes = Vec::new();
+        apply_record(&mut bytes, u32::MAX, &[], PAD, 8).unwrap();
+        assert!(bytes.is_empty());
+        apply_record(&mut bytes, 4, &[0x12, 0x34], PAD, 8).unwrap();
+        assert_eq!(bytes, [PAD, PAD, PAD, PAD, 0x12, 0x34]);
+        apply_record(&mut bytes, 5, &[0x56], PAD, 8).unwrap();
+        assert_eq!(bytes[5], 0x56);
+        assert!(apply_record(&mut bytes, 8, &[0x99], PAD, 8).is_err());
+        assert_eq!(bytes.len(), 6);
+
+        let empty_records = b":0000000000\n".repeat(10_000);
+        assert!(Format::IHex
+            .parse_with_limit(&empty_records, PAD, 8)
+            .unwrap()
+            .bytes
+            .is_empty());
+        let empty_srecords = b"S1030000FC\n".repeat(10_000);
+        assert!(Format::SRec
+            .parse_with_limit(&empty_srecords, PAD, 8)
+            .unwrap()
+            .bytes
+            .is_empty());
     }
 
     #[test]
