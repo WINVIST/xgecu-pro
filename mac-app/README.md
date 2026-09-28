@@ -38,7 +38,15 @@ in the app to work offline.
 
 ## Use
 
-Connect the T76 through a USB 2.0 cable or hub on Apple Silicon. Click
+The supplied USB cable is a target for hardware validation on the MacBook Pro
+M3. If it negotiates SuperSpeed, the current macOS T76 backend reports a
+diagnostic because bulk transfers have failed in earlier tests. A USB 2.0
+cable or hub is the working High Speed fallback; the supplied cable can be
+used through a USB 2.0 hub if its connectors fit. No ISP/ICSP cable is needed
+for this socket-based workflow. See [ROADMAP.md](ROADMAP.md) for the direct
+cable acceptance test.
+
+Connect the T76 over a working High Speed link. Click
 **Connect / Refresh**, search for a chip, select it, and use **Detect ID** or
 **Read…**. **Blank Check** compares the entire code region with the
 chip's erased value. Selecting a chip also shows its database package, pin
@@ -74,6 +82,15 @@ verification. The backend checks the chip ID before erase or protect changes;
 the GUI also requires a T76 and a database entry with an electronic ID.
 Save a dump before changing a chip. Do not disconnect the programmer during
 an active operation.
+
+`MX25L51245GMI-10G` and `MX25L25645GMI-08G` are requested targets. The
+user confirmed these exact markings. They are 3 V, 16-SOP serial NOR parts.
+The pinned T76 V13.21 database lists them as `MX25L51245G@SOIC16` (64 MiB,
+ID `C2201A`) and `MX25L25645G@SOIC16` (32 MiB, ID `C22019`). The GUI enables
+ID detection, read, blank check, and file comparison only when these exact
+database details match. Their socket placement, algorithm behavior, and full
+read results still require live validation. Write and erase remain disabled.
+See the [hardware acceptance plan](ROADMAP.md#user-requested-hardware-support).
 
 NAND, eMMC, firmware update, and other experimental chip classes remain
 available only through the original CLI. The app performs one operation at a

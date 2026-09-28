@@ -275,7 +275,7 @@ pub(crate) fn resolve_bitstream(
         for cand in [format!("{name}.alg"), format!("T7_{name}.alg")] {
             let path = dir.join(&cand);
             if path.is_file() {
-                let bytes = std::fs::read(&path)?;
+                let bytes = read_alg_file(&path)?;
                 return Ok(Some(Algorithm {
                     name: name.to_string(),
                     bitstream: decode_alg(&bytes)?,
@@ -285,7 +285,16 @@ pub(crate) fn resolve_bitstream(
     }
     if let Some(path) = algo_path {
         let file = std::fs::File::open(path)?;
-        return find_algorithm(std::io::BufReader::new(file), ALGO_SECTION, name);
+        if file.metadata()?.len() > MAX_ALGORITHM_XML_BYTES {
+            return Err(Error::Format(
+                "algorithm.xml exceeds the supported limit".into(),
+            ));
+        }
+        return find_algorithm(
+            std::io::BufReader::new(file.take(MAX_ALGORITHM_XML_BYTES + 1)),
+            ALGO_SECTION,
+            name,
+        );
     }
     Ok(None)
 }
@@ -735,6 +744,11 @@ fn find_algorithm<R: BufRead>(reader: R, section: &str, name: &str) -> Result<Op
 
 /// base64 → gzip → raw Anlogic bitstream bytes.
 fn inflate_bitstream(b64: &str) -> Result<Vec<u8>> {
+    if b64.len() > MAX_GZIP_BLOB * 2 {
+        return Err(Error::Format(
+            "bitstream base64 exceeds the supported limit".into(),
+        ));
+    }
     // Tolerate wrapped/padded attribute values.
     let clean: Vec<u8> = b64.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     let gz = base64::engine::general_purpose::STANDARD
@@ -742,8 +756,14 @@ fn inflate_bitstream(b64: &str) -> Result<Vec<u8>> {
         .map_err(|e| Error::Format(format!("bitstream base64: {e}")))?;
     let mut blob = Vec::new();
     flate2::read::GzDecoder::new(gz.as_slice())
+        .take((MAX_GZIP_BLOB + 1) as u64)
         .read_to_end(&mut blob)
         .map_err(|e| Error::Format(format!("bitstream gunzip: {e}")))?;
+    if blob.len() > MAX_GZIP_BLOB {
+        return Err(Error::Format(
+            "bitstream gunzip exceeds the supported limit".into(),
+        ));
+    }
     level2_decompress(&blob)
 }
 
@@ -787,6 +807,22 @@ fn decode_alg(alg: &[u8]) -> Result<Vec<u8>> {
 /// is treated as corrupt rather than allocated (a hostile header could
 /// otherwise demand a 4 GiB buffer).
 const MAX_BITSTREAM: usize = 16 * 1024 * 1024;
+// A valid RLE stream can use more bytes than its expanded output. Allow up to
+// two encoded bytes per output byte plus the eight-byte header, but never let
+// a compressed XML attribute or native .alg grow without bound.
+const MAX_GZIP_BLOB: usize = 2 * MAX_BITSTREAM + 8;
+const MAX_ALGORITHM_XML_BYTES: u64 = 128 << 20;
+
+pub(crate) fn read_alg_file(path: &Path) -> Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take((ALG_DATA_OFFSET + MAX_GZIP_BLOB + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > ALG_DATA_OFFSET + MAX_GZIP_BLOB {
+        return Err(Error::Format("alg file exceeds the supported limit".into()));
+    }
+    Ok(bytes)
+}
 
 fn level2_decompress(blob: &[u8]) -> Result<Vec<u8>> {
     const DATA_OFF: usize = 0x08;
@@ -1237,6 +1273,28 @@ mod tests {
             let b64 = pack_bitstream(raw);
             assert_eq!(inflate_bitstream(&b64).unwrap(), raw, "round-trip {raw:?}");
         }
+    }
+
+    #[test]
+    fn gzip_bitstream_expansion_stops_at_limit() {
+        use std::io::Write as _;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&vec![0u8; MAX_GZIP_BLOB + 1]).unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(gz.finish().unwrap());
+        let err = inflate_bitstream(&b64).unwrap_err();
+        assert_eq!(err.code(), "format");
+        assert!(err.to_string().contains("gunzip exceeds"));
+    }
+
+    #[test]
+    fn oversized_algorithm_xml_is_rejected_before_parsing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("algorithm.xml");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(MAX_ALGORITHM_XML_BYTES + 1).unwrap();
+        let err = resolve_bitstream(None, Some(&path), "SPI25F11").unwrap_err();
+        assert_eq!(err.code(), "format");
+        assert!(err.to_string().contains("algorithm.xml exceeds"));
     }
 
     fn algo_fixture(payload: &[u8]) -> String {

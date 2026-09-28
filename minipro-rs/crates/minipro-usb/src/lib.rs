@@ -153,7 +153,7 @@ impl UsbTransport {
 
     /// On macOS + SuperSpeed the T76 bulk path fails; surface a clear diagnostic.
     pub fn check_link(&self) -> Result<()> {
-        superspeed_diagnostic(cfg!(target_os = "macos"), self.link)
+        superspeed_diagnostic(cfg!(target_os = "macos"), self.vid, self.pid, self.link)
     }
 
     /// Get (claiming and caching on first use) a bulk OUT endpoint.
@@ -565,7 +565,7 @@ fn open_device(
     //
     // The set_configuration return is ignored — it's advisory, and the re-arm
     // is a best-effort workaround.
-    if vid == T76_VID && pid == T76_PID && link == LinkSpeed::Super {
+    if cfg!(target_os = "macos") && vid == T76_VID && pid == T76_PID && link == LinkSpeed::Super {
         let _ = device.set_configuration(0).wait();
         let _ = device.set_configuration(1).wait();
     }
@@ -611,9 +611,9 @@ fn link_speed_from(speed: Option<Speed>) -> LinkSpeed {
 }
 
 /// The macOS-lesson check behind [`UsbTransport::check_link`], parameterized on
-/// the OS so it is unit-testable on any host.
-fn superspeed_diagnostic(is_macos: bool, link: LinkSpeed) -> Result<()> {
-    if is_macos && link == LinkSpeed::Super {
+/// the OS and device ID so it is unit-testable on any host.
+fn superspeed_diagnostic(is_macos: bool, vid: u16, pid: u16, link: LinkSpeed) -> Result<()> {
+    if is_macos && vid == T76_VID && pid == T76_PID && link == LinkSpeed::Super {
         return Err(Error::Usb(
             "T76 on macOS SuperSpeed: bulk transfers fail; use a USB 2.0 cable".into(),
         ));
@@ -870,12 +870,12 @@ mod tests {
         assert!(tx.send(Ep(0x01), &[0x99]).is_err()); // desync -> Protocol error
     }
 
-    // check_link delegates to superspeed_diagnostic(cfg!(macos), link); the
-    // helper is what makes the macOS+Super rejection testable on every host
+    // check_link delegates to superspeed_diagnostic(os, vid, pid, link); the
+    // helper is what makes the macOS T76 SuperSpeed rejection testable on every host
     // without a live device.
     #[test]
     fn check_link_rejects_macos_superspeed() {
-        let err = superspeed_diagnostic(true, LinkSpeed::Super).unwrap_err();
+        let err = superspeed_diagnostic(true, T76_VID, T76_PID, LinkSpeed::Super).unwrap_err();
         assert_eq!(err.code(), "usb");
         assert!(err.to_string().contains("SuperSpeed"));
         assert!(err.to_string().contains("USB 2.0"));
@@ -888,10 +888,11 @@ mod tests {
 
     #[test]
     fn check_link_accepts_other_combinations() {
-        assert!(superspeed_diagnostic(true, LinkSpeed::High).is_ok());
-        assert!(superspeed_diagnostic(true, LinkSpeed::Full).is_ok());
-        assert!(superspeed_diagnostic(false, LinkSpeed::Super).is_ok());
-        assert!(superspeed_diagnostic(false, LinkSpeed::High).is_ok());
+        assert!(superspeed_diagnostic(true, T76_VID, T76_PID, LinkSpeed::High).is_ok());
+        assert!(superspeed_diagnostic(true, T76_VID, T76_PID, LinkSpeed::Full).is_ok());
+        assert!(superspeed_diagnostic(false, T76_VID, T76_PID, LinkSpeed::Super).is_ok());
+        assert!(superspeed_diagnostic(false, T76_VID, T76_PID, LinkSpeed::High).is_ok());
+        assert!(superspeed_diagnostic(true, TL866II_VID, TL866II_PID, LinkSpeed::Super).is_ok());
     }
 
     #[test]

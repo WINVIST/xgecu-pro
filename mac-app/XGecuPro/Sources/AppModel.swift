@@ -82,9 +82,19 @@ final class AppModel: ObservableObject {
     private var lastFoundOffset: Int?
     private let readableNames = ["AT27C256R@", "MX27C2000@", "W27C512@", "W27C257@"]
     private let writableNames = ["W27C512@", "W27C257@"]
+    private let requestedReadOnly: [String: (bytes: Int, id: String)] = [
+        "MX25L51245G@SOIC16": (67_108_864, "C2201A"),
+        "MX25L25645G@SOIC16": (33_554_432, "C22019"),
+    ]
 
     var canReadSelected: Bool {
-        isT76 && readableNames.contains(where: { selectedChip.uppercased().hasPrefix($0) })
+        guard isT76 else { return false }
+        let name = selectedChip.uppercased()
+        if readableNames.contains(where: { name.hasPrefix($0) }) { return true }
+        guard let expected = requestedReadOnly[name], let details = chipDetails else { return false }
+        return details.name.uppercased() == name && details.package.uppercased() == "SOIC16"
+            && details.pins == 16 && details.codeBytes == expected.bytes
+            && details.pageBytes == 256 && details.chipID?.uppercased() == expected.id
     }
 
     var canWriteSelected: Bool {
@@ -92,6 +102,10 @@ final class AppModel: ObservableObject {
     }
 
     func connect() {
+        // A failed refresh must not leave controls enabled for a device that
+        // may have been unplugged or replaced since the last successful check.
+        isT76 = false
+        deviceStatus = "Programmer not checked"
         perform(["info"]) { [weak self] result in
             guard let self else { return }
             let model = result["model"] as? String ?? "Unknown model"
@@ -101,8 +115,6 @@ final class AppModel: ObservableObject {
             self.deviceStatus = "\(model) · firmware \(firmware) · USB \(link)"
             if !self.isT76 {
                 self.status = "This version of the app supports only the T76."
-            } else if link == "ss" {
-                self.status = "On Apple Silicon, connect the T76 through a USB 2.0 cable or hub."
             } else {
                 self.status = "T76 connected. Select a chip."
             }
@@ -125,9 +137,15 @@ final class AppModel: ObservableObject {
         perform(["describe", chip]) { [weak self] result in
             guard let self, self.selectedChip == chip else { return }
             self.chipDetails = ChipDetails(result)
-            self.status = self.chipDetails == nil
-                ? "Error: The chip database returned incomplete details."
-                : "Chip details loaded from the database."
+            if self.chipDetails == nil {
+                self.status = "Error: The chip database returned incomplete details."
+            } else if self.requestedReadOnly[chip.uppercased()] != nil {
+                self.status = self.canReadSelected
+                    ? "Read-only support is ready for hardware validation. Verify SOIC16 socket placement before inserting the chip."
+                    : "Error: The database entry does not match the expected Macronix capacity and ID."
+            } else {
+                self.status = "Chip details loaded from the database."
+            }
         }
     }
 
@@ -193,16 +211,32 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        perform(["write", selectedChip, url.path, "--dry-run"]) { [weak self] _ in
+        let chip = selectedChip
+        let selectedDatabase = databasePath
+        let snapshot: (directory: URL, file: URL)
+        do {
+            snapshot = try makePrivateImageSnapshot(of: url)
+        } catch {
+            status = "Error: Could not prepare the programming image (\(englishErrorDetails(error)))."
+            return
+        }
+        var committed = false
+        perform(["write", chip, snapshot.file.path, "--dry-run"],
+                databasePath: selectedDatabase,
+                cleanup: {
+                    if !committed { try? FileManager.default.removeItem(at: snapshot.directory) }
+                }) { [weak self] _ in
             guard let self else { return }
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "Program \(self.selectedChip)?"
+            alert.messageText = "Program \(chip)?"
             alert.informativeText = "Preflight passed. This will change the chip contents; erasable chips are erased before programming. Save the original dump first."
             alert.addButton(withTitle: "Program and Verify")
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
-            self.perform(["write", self.selectedChip, url.path]) { [weak self] _ in
+            committed = true
+            self.perform(["write", chip, snapshot.file.path], databasePath: selectedDatabase,
+                         cleanup: { try? FileManager.default.removeItem(at: snapshot.directory) }) { [weak self] _ in
                 self?.status = "Programming completed and verified by a readback."
             }
         }
@@ -520,7 +554,7 @@ final class AppModel: ObservableObject {
     private var readyForChipOperation: Bool {
         guard !busy, isT76, !selectedChip.isEmpty else { return false }
         if !canReadSelected {
-            status = "Error: This version supports hardware-tested AT27C256R, MX27C2000, W27C512, and W27C257 parts only."
+            status = "Error: Select a supported chip. The two requested Macronix SOIC16 parts require matching database details."
             return false
         }
         return true
@@ -535,13 +569,14 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    private func perform(_ arguments: [String], cleanup: (() -> Void)? = nil,
+    private func perform(_ arguments: [String], databasePath selectedDatabase: String? = nil,
+                         cleanup: (() -> Void)? = nil,
                          success: @escaping ([String: Any]) -> Void) {
         guard !busy else { cleanup?(); return }
         busy = true
         progress = nil
         status = "Running: \(arguments.first ?? "operation")…"
-        runner.run(arguments, databasePath: databasePath, onEvent: { [weak self] event in
+        runner.run(arguments, databasePath: selectedDatabase ?? databasePath, onEvent: { [weak self] event in
             guard let self else { return }
             if let value = event["progress"] as? [String: Any],
                let done = value["done"] as? Double,
@@ -574,6 +609,36 @@ final class AppModel: ObservableObject {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
         return directory
+    }
+
+    private func makePrivateImageSnapshot(of source: URL) throws -> (directory: URL, file: URL) {
+        let directory = try makePrivateTemporaryDirectory()
+        do {
+            let suffix = source.pathExtension.isEmpty ? "bin" : source.pathExtension
+            let file = directory.appendingPathComponent("program.\(suffix)")
+            let input = try FileHandle(forReadingFrom: source)
+            defer { try? input.close() }
+            guard FileManager.default.createFile(atPath: file.path, contents: nil,
+                                                 attributes: [.posixPermissions: 0o600]) else {
+                throw MiniProFailure(message: "Could not create a private image snapshot.", hint: nil)
+            }
+            let output = try FileHandle(forWritingTo: file)
+            defer { try? output.close() }
+            var copied = 0
+            while let chunk = try input.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                guard chunk.count <= (256 * 1024 * 1024) - copied else {
+                    throw MiniProFailure(message: "The image exceeds the 256 MiB input limit.", hint: nil)
+                }
+                try output.write(contentsOf: chunk)
+                copied += chunk.count
+            }
+            try output.synchronize()
+            try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: file.path)
+            return (directory, file)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
     }
 
     private func openImage(_ url: URL, successStatus: String? = nil) {

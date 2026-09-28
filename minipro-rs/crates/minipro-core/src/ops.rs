@@ -77,6 +77,17 @@ use crate::transport::LinkSpeed;
 
 use sha2::Digest;
 
+fn checked_region_len(region: Region) -> Result<usize> {
+    let len = usize::try_from(region.len)
+        .map_err(|_| Error::Format("region is too large for this host".into()))?;
+    if len > crate::format::MAX_IMAGE_BYTES {
+        return Err(Error::Format(
+            "region exceeds the supported image limit".into(),
+        ));
+    }
+    Ok(len)
+}
+
 /// Read a whole region, looping block requests and reporting progress. This is
 /// where a driver's block-granular [`crate::caps::MemoryOps`] becomes a
 /// user-level "read the chip".
@@ -86,10 +97,11 @@ pub fn read_region(
     region: Region,
     rep: &mut dyn Reporter,
 ) -> Result<Image> {
+    let capacity = checked_region_len(region)?;
     let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
     let total = region.len;
     let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Read));
-    let mut bytes = Vec::with_capacity(total as usize);
+    let mut bytes = Vec::with_capacity(capacity);
     rep.event(&Event::Progress { done: 0, total });
     let mut done = 0u64;
     for req in region.blocks(step) {
@@ -175,6 +187,7 @@ pub fn write_region(
     image: &Image,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
+    checked_region_len(region)?;
     if image.bytes.len() as u64 != region.len {
         return Err(Error::Format(format!(
             "image is {} bytes but region is {} bytes",
@@ -390,6 +403,27 @@ mod tests {
         assert_eq!(img.bytes, data);
         // Blocks of 4, 4, 2 — with a leading 0/10 tick.
         assert_eq!(rep.progress, vec![(0, 10), (4, 10), (8, 10), (10, 10)]);
+    }
+
+    #[test]
+    fn oversized_database_region_is_rejected_before_usb_read() {
+        let dev = test_device(crate::format::MAX_IMAGE_BYTES as u64 + 1, 256);
+        let s = session_for(&dev);
+        let mut prog = FakeProg::new(Vec::new());
+        let mut rep = Collect::default();
+        let err = read_region(&mut prog, &s, Region::code(&dev), &mut rep).unwrap_err();
+        assert_eq!(err.code(), "format");
+        assert_eq!(prog.reads, 0);
+        assert!(rep.progress.is_empty());
+        let err = write_region(
+            &mut prog,
+            &s,
+            Region::code(&dev),
+            &Image { bytes: Vec::new() },
+            &mut rep,
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "format");
     }
 
     #[test]

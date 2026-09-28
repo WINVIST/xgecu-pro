@@ -29,8 +29,12 @@ target-Mac and T76 acceptance steps.
 
 1. Build the Release scheme on macOS 26.7 with Xcode and Rust for
    `aarch64-apple-darwin`; resolve any SDK or Swift compiler errors.
-2. Open the unsigned local app and verify T76 identity and a USB High Speed
-   link through a USB 2.0 cable or hub.
+2. Test the supplied USB cable directly on the target Mac and record the
+   negotiated link speed in macOS System Information (USB) and the result of
+   the app's **Connect / Refresh** action. If it negotiates SuperSpeed,
+   capture the diagnostic before testing a USB 2.0 cable
+   or hub as the known High Speed fallback. Do not run chip operations on an
+   unresponsive SuperSpeed link.
 3. Search the database, detect an inserted known part, read it twice, and
    compare the complete dumps with a separate tool.
 4. Save a known-good original dump. On a disposable W27C512 or W27C257,
@@ -38,6 +42,28 @@ target-Mac and T76 acceptance steps.
    deliberately wrong chip ID refuses mutation before erase.
 5. Record the Mac model, macOS/Xcode/Rust versions, T76 firmware, database
    version, part and package, USB link, and results for reproducibility.
+
+### User-requested hardware support
+
+- Support `MX25L51245GMI-10G` (512 Mbit / 64 MiB) and
+  `MX25L25645GMI-08G` (256 Mbit / 32 MiB), as confirmed by the user. Both
+  are 2.7–3.6 V Macronix 16-SOP (300 mil) serial NOR parts according to their
+  [51245G](https://www.macronix.com/Lists/Datasheet/Attachments/9100/MX25L51245G%2C%203V%2C%20512Mb%2C%20v1.8.pdf)
+  and [25645G](https://www.macronix.com/Lists/Datasheet/Attachments/8906/MX25L25645G%2C%203V%2C%20256Mb%2C%20v2.0.pdf)
+  datasheets. The pinned T76 V13.21 database contains `MX25L51245G@SOIC16`
+  (64 MiB, ID `C2201A`) and `MX25L25645G@SOIC16` (32 MiB, ID `C22019`);
+  the GUI now permits read-only operations when those details match. Validate
+  the T76 algorithm and socket or adapter placement, read each chip twice,
+  compare complete dumps, and retain
+  original backups. Enable writing or erase only after successful tests on
+  disposable examples.
+- Support the supplied USB cable on the MacBook Pro M3. Record whether it
+  negotiates High Speed or SuperSpeed. High Speed can be accepted through the
+  existing backend after live tests. The current macOS SuperSpeed path fails
+  on T76 bulk transfers and is blocked with a diagnostic; it needs a
+  demonstrated firmware/host/hub workaround and repeated live transfers
+  before it can be marked supported. The USB 2.0 fallback does not require a
+  different programmer or an ISP connection.
 
 ## 3. Additional tools already in source
 
@@ -53,7 +79,8 @@ target-Mac and T76 acceptance steps.
 
 - Fuse/config/lock operations, multi-region memories, and package/socket
   diagrams after their CLI path and chip metadata are verified.
-- Expand the supported T76 chip list one class at a time after hardware tests;
+- Expand the supported T76 chip list beyond the two requested Macronix parts
+  one class at a time after hardware tests;
   NAND/eMMC require the proper adapters and recovery checks.
 - Diagnostics, batch workflows, and optional local release packaging after the
   core flows are reliable. Broader programmer families require their own

@@ -31,7 +31,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use minipro_core::device::{Algorithm, Device};
 use minipro_core::error::{Error, FwVersion, Result};
 
-use crate::{algorithm_name, decode_alg, ChipDb, DllDb, Search};
+use crate::{algorithm_name, decode_alg, read_alg_file, ChipDb, DllDb, Search};
 
 const META_FILE: &str = "source.meta"; // "<version-tag>\n<utc-day>\n"
 
@@ -129,7 +129,7 @@ impl ChipDb for HttpDb {
         let name = name.to_string();
         let local = self.cache_dir.join("algoT76").join(format!("{name}.alg"));
         if local.is_file() {
-            let bytes = std::fs::read(&local)?;
+            let bytes = read_alg_file(&local)?;
             return Ok(Some(Algorithm {
                 name,
                 bitstream: decode_alg(&bytes)?,
