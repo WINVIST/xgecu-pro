@@ -48,16 +48,19 @@ enum ChipPolicy {
     }
 
     static func canRead(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
-        guard isT76 else { return false }
+        guard isT76, let details else { return false }
         let normalized = name.uppercased()
+        guard details.name.uppercased() == normalized else { return false }
         if readablePrefixes.contains(where: { normalized.hasPrefix($0) }) { return true }
-        guard let expected = requestedReadOnly[normalized], let details else { return false }
-        return details.name.uppercased() == normalized && details.package.uppercased() == "SOIC16"
+        guard let expected = requestedReadOnly[normalized] else { return false }
+        return details.package.uppercased() == "SOIC16"
             && details.pins == 16 && details.codeBytes == expected.bytes
             && details.pageBytes == 256 && details.chipID?.uppercased() == expected.id
     }
 
-    static func canWrite(_ name: String, isT76: Bool) -> Bool {
-        isT76 && writablePrefixes.contains(where: { name.uppercased().hasPrefix($0) })
+    static func canWrite(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
+        guard canRead(name, details: details, isT76: isT76), let details else { return false }
+        return writablePrefixes.contains(where: { name.uppercased().hasPrefix($0) })
+            && !(details.chipID?.isEmpty ?? true)
     }
 }

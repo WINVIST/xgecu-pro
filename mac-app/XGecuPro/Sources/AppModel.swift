@@ -50,7 +50,7 @@ final class AppModel: ObservableObject {
     }
 
     var canWriteSelected: Bool {
-        ChipPolicy.canWrite(selectedChip, isT76: isT76)
+        ChipPolicy.canWrite(selectedChip, details: chipDetails, isT76: isT76)
     }
 
     func connect() {

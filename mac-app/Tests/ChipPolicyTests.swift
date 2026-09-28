@@ -3,15 +3,16 @@ import XCTest
 @testable import XGecuBufferCore
 
 final class ChipPolicyTests: XCTestCase {
-    private func details(_ name: String, bytes: Int, id: String) -> [String: Any] {
+    private func details(_ name: String, bytes: Int, id: String, package: String = "SOIC16",
+                         pins: Int = 16, page: Int = 256) -> [String: Any] {
         [
             "name": name,
-            "package": "SOIC16",
-            "pins": 16,
+            "package": package,
+            "pins": pins,
             "code_bytes": bytes,
             "data_bytes": 0,
             "data2_bytes": 0,
-            "page_bytes": 256,
+            "page_bytes": page,
             "chip_id": id,
             "blank_value": "FF",
             "can_erase": true,
@@ -27,7 +28,7 @@ final class ChipPolicyTests: XCTestCase {
             XCTAssertTrue(ChipPolicy.isRequestedReadOnly(name))
             XCTAssertTrue(ChipPolicy.canRead(name, details: chip, isT76: true))
             XCTAssertFalse(ChipPolicy.canRead(name, details: chip, isT76: false))
-            XCTAssertFalse(ChipPolicy.canWrite(name, isT76: true))
+            XCTAssertFalse(ChipPolicy.canWrite(name, details: chip, isT76: true))
         }
     }
 
@@ -51,11 +52,33 @@ final class ChipPolicyTests: XCTestCase {
         XCTAssertFalse(ChipPolicy.canRead("MX25L51245G@SOIC8", details: ChipDetails(original), isT76: true))
     }
 
-    func testOnlyPreviouslyApprovedPartsCanBeWritten() {
-        XCTAssertTrue(ChipPolicy.canWrite("W27C512@DIP28", isT76: true))
-        XCTAssertTrue(ChipPolicy.canWrite("W27C257@DIP28", isT76: true))
-        XCTAssertFalse(ChipPolicy.canWrite("W27C512@DIP28", isT76: false))
-        XCTAssertFalse(ChipPolicy.canWrite("MX25L25645G@SOIC16", isT76: true))
-        XCTAssertFalse(ChipPolicy.canWrite("MX25L51245G@SOIC16", isT76: true))
+    func testMutationRequiresMatchingDetailsAndElectronicID() throws {
+        for (name, bytes, id) in [
+            ("W27C512@DIP28", 65_536, "DA08"),
+            ("W27C257@DIP28", 32_768, "DA02"),
+        ] {
+            let chip = try XCTUnwrap(ChipDetails(details(name, bytes: bytes, id: id,
+                                                         package: "DIP28", pins: 28, page: 0)))
+            XCTAssertTrue(ChipPolicy.canWrite(name, details: chip, isT76: true))
+            XCTAssertFalse(ChipPolicy.canWrite(name, details: nil, isT76: true))
+            XCTAssertFalse(ChipPolicy.canWrite(name, details: chip, isT76: false))
+
+            var wrongName = details(name, bytes: bytes, id: id, package: "DIP28", pins: 28, page: 0)
+            wrongName["name"] = "W27C512@PLCC32"
+            XCTAssertFalse(ChipPolicy.canWrite(name, details: ChipDetails(wrongName), isT76: true))
+
+            var noID = details(name, bytes: bytes, id: id, package: "DIP28", pins: 28, page: 0)
+            noID.removeValue(forKey: "chip_id")
+            XCTAssertFalse(ChipPolicy.canWrite(name, details: ChipDetails(noID), isT76: true))
+        }
+    }
+
+    func testKnownReadPartWaitsForMatchingDatabaseDetails() throws {
+        let name = "AT27C256R@DIP28"
+        let chip = try XCTUnwrap(ChipDetails(details(name, bytes: 32_768, id: "1E8C",
+                                                     package: "DIP28", pins: 28, page: 0)))
+        XCTAssertFalse(ChipPolicy.canRead(name, details: nil, isT76: true))
+        XCTAssertTrue(ChipPolicy.canRead(name, details: chip, isT76: true))
+        XCTAssertFalse(ChipPolicy.canRead("AT27C256R@PLCC32", details: chip, isT76: true))
     }
 }
