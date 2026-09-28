@@ -86,12 +86,50 @@ private struct ContentView: View {
                     .foregroundColor(model.status.contains("ошиб") ? .red : .primary)
                     .textSelection(.enabled)
                 TabView {
-                    ScrollView {
-                        Text(model.hexPreview.isEmpty ? "После чтения здесь появится начало дампа." : model.hexPreview)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
-                            .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Button("Открыть файл…") { model.openBuffer() }
+                                .disabled(model.busy)
+                            Button("Сохранить как…") { model.saveBuffer() }
+                                .disabled(model.busy || model.bufferSize == 0)
+                            Spacer()
+                            Text(model.bufferSize == 0 ? "Буфер пуст" : "\(model.bufferSize) байт" + (model.bufferDirty ? " · изменён" : ""))
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Button("‹") { model.previousPage() }
+                                .disabled(model.bufferOffset == 0)
+                            Button("›") { model.nextPage() }
+                                .disabled(model.bufferOffset + 256 >= model.bufferSize)
+                            Text("Адрес HEX")
+                            TextField("0", text: $model.addressText)
+                                .frame(width: 90)
+                                .onSubmit { model.jumpToAddress() }
+                            Button("Перейти") { model.jumpToAddress() }
+                            Spacer()
+                            TextField("Найти байты HEX", text: $model.findText)
+                                .frame(width: 170)
+                                .onSubmit { model.findHex() }
+                            Button("Найти") { model.findHex() }
+                        }
+                        .disabled(model.busy || model.bufferSize == 0)
+                        HStack {
+                            Text("Заполнить 0x")
+                            TextField("начало", text: $model.fillStartText).frame(width: 80)
+                            Text("…0x")
+                            TextField("конец", text: $model.fillEndText).frame(width: 80)
+                            Text("значением 0x")
+                            TextField("FF", text: $model.fillByteText).frame(width: 46)
+                            Button("Применить…") { model.fillRange() }
+                        }
+                        .disabled(model.busy || model.bufferSize == 0)
+                        ScrollView {
+                            Text(model.hexPreview.isEmpty ? "Прочитайте микросхему или откройте файл дампа." : model.hexPreview)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                                .textSelection(.enabled)
+                        }
                     }
                     .tabItem { Text("Hex") }
                     ScrollView {

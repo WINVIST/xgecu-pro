@@ -18,8 +18,21 @@ final class AppModel: ObservableObject {
     @Published var hexPreview = ""
     @Published var lastFile: URL?
     @Published var isT76 = false
+    @Published var bufferSize = 0
+    @Published var bufferOffset = 0
+    @Published var bufferDirty = false
+    @Published var addressText = "0"
+    @Published var findText = ""
+    @Published var fillStartText = "0"
+    @Published var fillEndText = "0"
+    @Published var fillByteText = "FF"
 
     private let runner = MiniProRunner()
+    private let maxBufferBytes = 64 * 1024 * 1024
+    private let pageBytes = 256
+    private var buffer = Data()
+    private var lastSearch: Data?
+    private var lastFoundOffset: Int?
     private let readableNames = ["AT27C256R@", "MX27C2000@", "W27C512@", "W27C257@"]
     private let writableNames = ["W27C512@", "W27C257@"]
 
@@ -69,13 +82,13 @@ final class AppModel: ObservableObject {
 
     func readChip() {
         guard readyForChipOperation else { return }
+        guard confirmDiscardBuffer() else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = selectedChip.replacingOccurrences(of: "@", with: "_") + ".bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         perform(["read", selectedChip, url.path]) { [weak self] result in
             guard let self else { return }
-            self.lastFile = url
-            self.loadPreview(url)
+            guard self.loadBuffer(url) else { return }
             let stable = result["stable"] as? Bool ?? false
             self.status = stable
                 ? "Дамп сохранён и совпал при повторном чтении."
@@ -158,6 +171,131 @@ final class AppModel: ObservableObject {
         status = "Выбрана локальная база: \(url.lastPathComponent)."
     }
 
+    func openBuffer() {
+        guard !busy, confirmDiscardBuffer() else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        _ = loadBuffer(url)
+    }
+
+    func saveBuffer() {
+        guard !busy, bufferSize > 0 else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = lastFile?.lastPathComponent ?? "buffer.bin"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try buffer.write(to: url, options: .atomic)
+            lastFile = url
+            bufferDirty = false
+            status = "Буфер сохранён: \(url.lastPathComponent)."
+        } catch {
+            status = "Не удалось сохранить буфер: \(error.localizedDescription)"
+        }
+    }
+
+    func previousPage() {
+        guard bufferOffset > 0 else { return }
+        bufferOffset = max(0, bufferOffset - pageBytes)
+        lastFoundOffset = nil
+        addressText = String(bufferOffset, radix: 16).uppercased()
+        renderPage()
+    }
+
+    func nextPage() {
+        guard bufferOffset + pageBytes < bufferSize else { return }
+        bufferOffset += pageBytes
+        lastFoundOffset = nil
+        addressText = String(bufferOffset, radix: 16).uppercased()
+        renderPage()
+    }
+
+    func jumpToAddress() {
+        guard bufferSize > 0 else { return }
+        guard let address = parseHexNumber(addressText), address >= 0, address < bufferSize else {
+            status = "Адрес вне буфера. Введите шестнадцатеричное смещение."
+            return
+        }
+        bufferOffset = (address / pageBytes) * pageBytes
+        lastFoundOffset = nil
+        renderPage()
+    }
+
+    func findHex() {
+        guard bufferSize > 0 else { return }
+        let cleaned = findText.replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "0x", with: "", options: .caseInsensitive)
+        guard !cleaned.isEmpty, cleaned.count <= 512, cleaned.count.isMultiple(of: 2),
+              cleaned.allSatisfy({ $0.isHexDigit }) else {
+            status = "Введите от 1 до 256 байт в виде HEX, например DE AD BE EF."
+            return
+        }
+        let chars = Array(cleaned)
+        let needle = Data(stride(from: 0, to: chars.count, by: 2).compactMap {
+            UInt8(String(chars[$0...($0 + 1)]), radix: 16)
+        })
+        guard needle.count == chars.count / 2 else {
+            status = "Некорректная HEX-последовательность."
+            return
+        }
+        let start = min(bufferSize, lastSearch == needle ? (lastFoundOffset ?? bufferOffset) + 1 : bufferOffset)
+        let match = buffer.range(of: needle, in: start..<bufferSize)
+            ?? buffer.range(of: needle, in: 0..<start)
+        guard let match else {
+            status = "Последовательность не найдена."
+            return
+        }
+        bufferOffset = (match.lowerBound / pageBytes) * pageBytes
+        lastSearch = needle
+        lastFoundOffset = match.lowerBound
+        addressText = String(match.lowerBound, radix: 16).uppercased()
+        renderPage()
+        status = String(format: "Найдено по адресу 0x%X.", match.lowerBound)
+    }
+
+    func fillRange() {
+        guard !busy, bufferSize > 0 else { return }
+        guard let start = parseHexNumber(fillStartText),
+              let end = parseHexNumber(fillEndText),
+              let value = parseHexNumber(fillByteText),
+              start >= 0, start <= end, end < bufferSize, value >= 0, value <= 0xFF else {
+            status = "Укажите корректный диапазон адресов и байт заполнения в HEX."
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Заполнить диапазон буфера?"
+        alert.informativeText = String(format: "Адреса 0x%X…0x%X будут заменены на 0x%02X. Изменение пока не записывается в чип.", start, end, value)
+        alert.addButton(withTitle: "Заполнить")
+        alert.addButton(withTitle: "Отмена")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        buffer.replaceSubrange(start...end, with: Data(repeating: UInt8(value), count: end - start + 1))
+        bufferDirty = true
+        lastFoundOffset = nil
+        bufferOffset = (start / pageBytes) * pageBytes
+        addressText = String(start, radix: 16).uppercased()
+        renderPage()
+        status = "Буфер изменён. Сохраните его перед записью."
+    }
+
+    private func parseHexNumber(_ input: String) -> Int? {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = text.lowercased().hasPrefix("0x") ? String(text.dropFirst(2)) : text
+        return Int(digits, radix: 16)
+    }
+
+    private func confirmDiscardBuffer() -> Bool {
+        guard bufferDirty else { return true }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "В буфере есть несохранённые изменения"
+        alert.informativeText = "При загрузке другого дампа изменения будут потеряны."
+        alert.addButton(withTitle: "Продолжить без сохранения")
+        alert.addButton(withTitle: "Отмена")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     private var readyForChipOperation: Bool {
         guard !busy, isT76, !selectedChip.isEmpty else { return false }
         if !canReadSelected {
@@ -206,21 +344,49 @@ final class AppModel: ObservableObject {
         })
     }
 
-    private func loadPreview(_ url: URL) {
+    @discardableResult
+    private func loadBuffer(_ url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else {
-            hexPreview = "Не удалось открыть дамп."
-            return
+            status = "Не удалось открыть дамп."
+            return false
         }
         defer { try? handle.close() }
-        let bytes = (try? handle.read(upToCount: 4096)) ?? Data()
-        let array = Array(bytes)
-        hexPreview = stride(from: 0, to: array.count, by: 16).map { offset in
-            let line = array[offset..<min(offset + 16, array.count)]
+        do {
+            var bytes = Data()
+            while bytes.count <= maxBufferBytes {
+                let chunk = try handle.read(upToCount: min(1024 * 1024, maxBufferBytes + 1 - bytes.count)) ?? Data()
+                if chunk.isEmpty { break }
+                bytes.append(chunk)
+            }
+            guard !bytes.isEmpty, bytes.count <= maxBufferBytes else {
+                status = "Размер дампа должен быть от 1 байта до 64 МиБ."
+                return false
+            }
+            buffer = bytes
+            bufferSize = bytes.count
+            bufferOffset = 0
+            addressText = "0"
+            bufferDirty = false
+            lastSearch = nil
+            lastFoundOffset = nil
+            lastFile = url
+            renderPage()
+            status = "Дамп загружен: \(url.lastPathComponent), \(bytes.count) байт."
+            return true
+        } catch {
+            status = "Не удалось прочитать дамп: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func renderPage() {
+        let end = min(bufferOffset + pageBytes, bufferSize)
+        hexPreview = stride(from: bufferOffset, to: end, by: 16).map { offset in
+            let line = buffer[offset..<min(offset + 16, end)]
             let hex = line.map { String(format: "%02X", $0) }.joined(separator: " ")
             let ascii = line.map { (32...126).contains(Int($0)) ? String(UnicodeScalar($0)) : "." }.joined()
             let paddedHex = hex.padding(toLength: 47, withPad: " ", startingAt: 0)
-            return String(format: "%08X", UInt32(offset)) + "  " + paddedHex + "  " + ascii
+            return String(format: "%08X", offset) + "  " + paddedHex + "  " + ascii
         }.joined(separator: "\n")
-        if array.count == 4096 { hexPreview += "\n… показаны первые 4096 байт" }
     }
 }

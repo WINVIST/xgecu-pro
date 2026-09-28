@@ -41,7 +41,12 @@ chip's erased value. **Сравнить с файлом** reads the chip twice a
 the result with a selected raw, Intel HEX, or S-record image. A short image is
 padded with the chip's erased value through its full code region. Reads are repeated
 by the Rust backend; the app marks an
-unstable result and previews the first 4 KiB of the saved dump.
+unstable result and opens the saved dump in a paged hex buffer. The buffer can
+also open local files, jump to a hex address, find a byte sequence, and fill an
+inclusive address range with one byte. It accepts raw files up to 64 MiB. Save
+edited buffers with **Сохранить как…** before choosing a file to program; the
+**Записать…** action programs the file selected in its dialog, not unsaved buffer
+changes. The app asks before discarding unsaved changes on a new read or open.
 
 The GUI enables read and ID checks for AT27C256R, MX27C2000, W27C512, and
 W27C257 entries. Write and erase are limited to W27C512 and W27C257, whose

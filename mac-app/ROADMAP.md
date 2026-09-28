@@ -37,9 +37,10 @@ build and the hardware checks below pass on the target Mac.
 
 ## 3. Closer parity with the original application
 
-- Add a full-image hex viewer/editor, offline file-to-file compare, checksums,
-  and editable buffers
-  while keeping address/size limits explicit.
+- Implemented in source: paged full-image hex buffer (64 MiB limit), file
+  open/save, address jump, hex byte search, and range fill.
+- Add per-byte editing, undo/redo, offline file-to-file compare, checksums,
+  block copy/export, and ASCII search.
 - Add fuse/config/lock operations, multi-region memories, and
   package/socket diagrams when their CLI path and chip metadata are verified.
 - Expand the supported T76 chip list one class at a time after hardware tests;
@@ -51,3 +52,6 @@ build and the hardware checks below pass on the target Mac.
 Keep feature scope and tested chip families in [README.md](README.md). The
 backend's broader protocol roadmap remains in
 [docs/rust-roadmap.md](../docs/rust-roadmap.md).
+
+The original Xgpro workflow and buffer tools are described in the
+[XGecu T48/T76 user guide](https://probots.co.in/technical_data/XGecu%20T48%20Universal%20Programmer__Guide.pdf).
