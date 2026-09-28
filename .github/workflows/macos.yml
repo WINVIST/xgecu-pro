@@ -52,6 +52,7 @@ jobs:
           test "$(lipo -archs "$app/Contents/Resources/minipro")" = arm64
 
       - name: Package unsigned macOS app
+        if: github.ref == 'refs/heads/main'
         run: |
           app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
           archive="$RUNNER_TEMP/XGecuPro-macOS-arm64.zip"
@@ -64,6 +65,7 @@ jobs:
           (cd "$RUNNER_TEMP" && shasum -a 256 XGecuPro-macOS-arm64.zip > XGecuPro-macOS-arm64.zip.sha256)
 
       - name: Upload installable app
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: XGecuPro-macOS-arm64-unsigned
