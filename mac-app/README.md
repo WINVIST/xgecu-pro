@@ -99,10 +99,12 @@ for this socket-based workflow. See [ROADMAP.md](ROADMAP.md) for the direct
 cable acceptance test.
 
 Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
-For either requested Macronix chip in a verified SOIC16 adapter, click
-**Auto Detect SOIC16**. For either requested JEDEC ID, the app selects the
-matching database entry and checks its package, capacity, and ID before
-enabling reading. Confirm the chip marking and adapter placement before Read.
+For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.
+The programmer reads its JEDEC ID and the app lists all SOIC16 entries with
+that ID in the selected database. If there is one entry, it is selected;
+otherwise choose the entry matching the printed chip marking. A shared JEDEC
+ID is not proof of an exact model. Confirm the marking and adapter placement
+before any operation.
 Alternatively, search for the
 chip name and select its exact `@SOIC16` entry. Then use **Read…**. The separate
 **Detect ID** action rechecks the selected chip's ID. **Blank Check** compares
@@ -111,8 +113,7 @@ chip's erased value. Selecting a chip also shows its database package, pin
 count, memory region sizes, page size, expected electronic ID, and erased value
 without connecting the programmer. The package label is not a socket placement
 guide; check the programmer's verified placement instructions before seating a
-part. Search covers the vendor database, including parts for which this build
-does not enable hardware operations. **Verify Against File…** reads the chip
+part. Search covers the vendor database. **Verify Against File…** reads the chip
 twice and compares
 the result with a selected raw, Intel HEX, or S-record image. A short image is
 padded with the chip's erased value through its full code region. Reads are repeated
@@ -121,7 +122,7 @@ unstable result and opens the saved dump in a paged hex buffer. The buffer can
 also open local raw, Intel HEX, and Motorola S-record files, jump to a hex
 address, find a byte sequence, and fill an inclusive address range with one
 byte. Address gaps in HEX and S-record files are filled with `0xFF`. The image
-limit is 64 MiB; text image inputs are limited to 256 MiB on disk. **Save As…**
+limit is 256 MiB; text image inputs are limited to 256 MiB on disk. **Save As…**
 chooses raw, Intel HEX, or S-record output from the file extension. Save
 edited buffers with **Save As…** before choosing a file to program; the
 **Program…** action programs the file selected in its dialog, not unsaved buffer
@@ -134,22 +135,29 @@ the buffer, even when the ranges overlap; **Export…** writes the selected bloc
 to a separate raw file. The app asks before discarding unsaved changes on a new
 read or open.
 
-The GUI enables read and ID checks for AT27C256R, MX27C2000, W27C512, and
-W27C257 entries. Write and erase are limited to W27C512 and W27C257, whose
-repeated read/write/erase cycles were hardware-verified by upstream. Write first runs
-`--dry-run`, then asks for confirmation and uses the backend's read-back
-verification. The backend checks the chip ID before erase or protect changes;
-the GUI also requires a T76 and a database entry with an electronic ID.
+The GUI uses the entire selected database, without a hardcoded chip allowlist.
+Read, ID check, blank check, and verify are offered for entries with a nonempty
+code region up to the current 256 MiB backend limit. Program is offered when
+the entry also has an electronic ID; Erase additionally requires the database
+to mark the part electrically erasable. The backend can still refuse an
+unsupported chip family or algorithm. These controls are **not** a claim that
+every database part has been tested on hardware. Write first runs `--dry-run`,
+then asks for confirmation and uses the backend's read-back verification.
+The backend checks the chip ID before erase or protect changes; the GUI also
+requires a connected T76 and an ID for mutations.
 Save a dump before changing a chip. Do not disconnect the programmer during
 an active operation.
 
-`MX25L51245GMI-10G` and `MX25L25645GMI-08G` are requested targets. The
-user confirmed these exact markings. They are 3 V, 16-SOP serial NOR parts.
-The pinned T76 V13.21 database lists them as `MX25L51245G@SOIC16` (64 MiB,
-ID `C2201A`) and `MX25L25645G@SOIC16` (32 MiB, ID `C22019`). The GUI enables
-ID detection, read, blank check, and file comparison only when these exact
-database details match. Their socket placement, algorithm behavior, and full
-read results still require live validation. Write and erase remain disabled.
+`MX66L1G45GMI-08G` and `MX25L51245GMI-08G` are the current target chips,
+confirmed by photographs. They are 3 V, 16-SOP serial NOR parts. The pinned
+T76 V13.21 database lists them as `MX66L1G45G@SOIC16` (128 MiB,
+ID `C2201B`) and `MX25L51245G@SOIC16` (64 MiB, ID `C2201A`). The GUI enables
+ID detection, read, blank check, file comparison, program, and erase through
+the same database-driven controls as other parts. Their socket placement,
+algorithm behavior, and full read results still require live validation.
+Preserve two matching original dumps before attempting any destructive operation.
+For MX66L1G45G, **Read…** saves the 128 MiB code region; its separate 512-byte
+data region is outside the current GUI read workflow.
 See the [hardware acceptance plan](ROADMAP.md#user-requested-hardware-support).
 
 NAND, eMMC, firmware update, and other experimental chip classes remain

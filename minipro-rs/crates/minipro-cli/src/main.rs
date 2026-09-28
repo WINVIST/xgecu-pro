@@ -1254,9 +1254,31 @@ fn run_autodetect(db_dir: Option<&Path>, wide: bool, mode: Mode) -> Result<()> {
         return Err(Error::NoDeviceResponse { id });
     }
     let mfr = manufacturer_name((id >> 16) as u8);
+    // The SPI probe is wired for the SOIC16 socket adapter. An ID alone does
+    // not distinguish capacity revisions or pin-compatible variants, so send
+    // every matching database entry for the user to confirm by its marking.
+    let mut matches: Vec<&str> = db
+        .all()
+        .iter()
+        .filter(|d| {
+            d.chip_id_bytes == 3
+                && d.chip_id == id
+                && d.package.name.eq_ignore_ascii_case("SOIC16")
+                && d.package.pin_count == 16
+        })
+        .map(|d| d.name.as_str())
+        .collect();
+    matches.sort_unstable();
+    matches.dedup();
     match mode {
         Mode::Json => {
-            println!("{{\"op\":\"autodetect\",\"ok\":true,\"id\":\"{id:06x}\",\"manufacturer\":\"{mfr}\"}}")
+            println!(
+                "{}",
+                serde_json::json!({
+                    "op": "autodetect", "ok": true, "id": format!("{id:06x}"),
+                    "manufacturer": mfr, "n": matches.len(), "matches": matches,
+                })
+            )
         }
         _ => anstream::println!("SPI autodetect: 0x{id:06X} — {mfr}"),
     }
@@ -1316,7 +1338,7 @@ fn run_describe(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-const GUI_IMAGE_LIMIT: usize = 64 << 20;
+const GUI_IMAGE_LIMIT: usize = minipro_core::format::MAX_IMAGE_BYTES;
 const CONVERT_INPUT_LIMIT: u64 = 256 << 20;
 
 /// Keep the prior dump intact if writing the replacement fails or the process

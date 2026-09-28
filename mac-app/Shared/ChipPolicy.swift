@@ -36,40 +36,24 @@ struct ChipDetails {
 }
 
 enum ChipPolicy {
-    private static let readablePrefixes = ["AT27C256R@", "MX27C2000@", "W27C512@", "W27C257@"]
-    private static let writablePrefixes = ["W27C512@", "W27C257@"]
-    private static let requestedReadOnly: [String: (bytes: Int, id: String)] = [
-        "MX25L51245G@SOIC16": (67_108_864, "C2201A"),
-        "MX25L25645G@SOIC16": (33_554_432, "C22019"),
-    ]
-
-    static func isRequestedReadOnly(_ name: String) -> Bool {
-        requestedReadOnly[name.uppercased()] != nil
-    }
-
-    static func supportedSOIC16Candidates(forJEDECID id: String) -> [String] {
-        let normalized = id.uppercased()
-        guard normalized.count == 6, normalized.allSatisfy({ $0.isHexDigit }) else { return [] }
-        return requestedReadOnly
-            .filter { $0.value.id == normalized }
-            .map { $0.key }
-            .sorted()
-    }
+    // The image bound comes from the Rust backend. It is not a model allowlist.
+    static let maxImageBytes = 256 * 1024 * 1024
 
     static func canRead(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
         guard isT76, let details else { return false }
-        let normalized = name.uppercased()
-        guard details.name.uppercased() == normalized else { return false }
-        if readablePrefixes.contains(where: { normalized.hasPrefix($0) }) { return true }
-        guard let expected = requestedReadOnly[normalized] else { return false }
-        return details.package.uppercased() == "SOIC16"
-            && details.pins == 16 && details.codeBytes == expected.bytes
-            && details.pageBytes == 256 && details.chipID?.uppercased() == expected.id
+        return details.name == name && !details.package.isEmpty && details.pins > 0
+            && details.codeBytes > 0 && details.codeBytes <= maxImageBytes
+            && details.dataBytes >= 0 && details.extraDataBytes >= 0
+            && details.pageBytes >= 0
     }
 
     static func canWrite(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
         guard canRead(name, details: details, isT76: isT76), let details else { return false }
-        return writablePrefixes.contains(where: { name.uppercased().hasPrefix($0) })
-            && !(details.chipID?.isEmpty ?? true)
+        // Mutation requires a hardware ID check in the bundled CLI.
+        return !(details.chipID?.isEmpty ?? true)
+    }
+
+    static func canErase(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
+        canWrite(name, details: details, isT76: isT76) && (details?.canErase ?? false)
     }
 }

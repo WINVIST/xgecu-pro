@@ -88,7 +88,7 @@ private struct ContentView: View {
                     Button("Program…") { model.writeChip() }
                         .disabled(!model.canWriteSelected)
                     Button("Erase") { model.eraseChip() }
-                        .disabled(!model.canWriteSelected)
+                        .disabled(!model.canEraseSelected)
                 }
                 .disabled(model.busy || !model.isT76 || model.selectedChip.isEmpty)
                 if model.busy {

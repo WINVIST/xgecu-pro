@@ -19,7 +19,7 @@ completed record in a private location.
    checks. Record which connection succeeds. Do not infer direct-cable support
    from a successful hub test.
 
-## 2. Read the two requested Macronix parts
+## 2. Read the two photographed Macronix parts
 
 Only proceed on a working T76 connection. Use the correct 300 mil SOP16 adapter
 and the manufacturer's verified pin-1 and placement instructions. The package
@@ -30,14 +30,17 @@ For each part, use **Auto Detect SOIC16** and record the reported JEDEC ID and
 selected `@SOIC16` database entry. Confirm the marking and adapter placement,
 run **Detect ID**, then use **Read…** twice and save two separate raw `.bin` files.
 If autodetect fails, record the full error before trying the manual search.
-Each Read action
-also performs an internal second read; the two saved files provide an external
-comparison.
+Each Read action also performs an internal second read; the two saved files
+provide an external comparison.
 
 | Chip marking | Database entry | Expected ID | Expected raw dump size |
 | --- | --- | --- | ---: |
-| `MX25L51245GMI-10G` | `MX25L51245G@SOIC16` | `C2201A` | 67,108,864 bytes |
-| `MX25L25645GMI-08G` | `MX25L25645G@SOIC16` | `C22019` | 33,554,432 bytes |
+| `MX66L1G45GMI-08G` | `MX66L1G45G@SOIC16` | `C2201B` | 134,217,728 bytes |
+| `MX25L51245GMI-08G` | `MX25L51245G@SOIC16` | `C2201A` | 67,108,864 bytes |
+
+The MX66L1G45G database entry also lists 512 data bytes. The current Read
+action saves the 128 MiB code region; record the 512-byte auxiliary region
+separately when multi-region support is implemented.
 
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 
@@ -70,6 +73,8 @@ Errors or unexpected behavior:
 ```
 
 The [roadmap](ROADMAP.md) lists separate destructive acceptance tests on
-disposable Winbond parts. The requested Macronix parts remain read-only until
-their algorithm, placement, full reads, and later disposable-part tests justify
-expanding support.
+disposable parts. The GUI now exposes database-driven program and erase
+controls where an electronic ID and erase capability are present. Do not use
+them on the requested Macronix parts until their placement, repeated full
+reads, and original backup have been checked. Test mutation first on a
+disposable rewritable part.

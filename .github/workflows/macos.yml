@@ -59,6 +59,10 @@ jobs:
       - name: Check requested chips in pinned database
         run: |
           helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          search=$("$helper" --json search MX66L1G45G --limit 100)
+          printf '%s\n' "$search" | jq -e '.ok == true and (.hits | index("MX66L1G45G@SOIC16") != null)'
+          primary=$("$helper" --json describe MX66L1G45G@SOIC16)
+          printf '%s\n' "$primary" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 134217728 and .data_bytes == 512 and .page_bytes == 256 and .chip_id == "C2201B"'
           search=$("$helper" --json search MX25L51245G --limit 100)
           printf '%s\n' "$search" | jq -e '.ok == true and (.hits | index("MX25L51245G@SOIC16") != null)'
           search=$("$helper" --json search MX25L25645G --limit 100)
@@ -67,6 +71,13 @@ jobs:
           printf '%s\n' "$first" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 67108864 and .page_bytes == 256 and .chip_id == "C2201A"'
           second=$("$helper" --json describe MX25L25645G@SOIC16)
           printf '%s\n' "$second" | jq -e '.ok == true and .package == "SOIC16" and .pins == 16 and .code_bytes == 33554432 and .page_bytes == 256 and .chip_id == "C22019"'
+
+      - name: Check 256 MiB image conversion
+        run: |
+          helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          dd if=/dev/zero of="$RUNNER_TEMP/input-256m.bin" bs=1048576 count=256
+          "$helper" --json convert "$RUNNER_TEMP/input-256m.bin" "$RUNNER_TEMP/output-256m.bin" | jq -e '.ok == true'
+          cmp "$RUNNER_TEMP/input-256m.bin" "$RUNNER_TEMP/output-256m.bin"
 
       - name: Package unsigned macOS app
         if: github.ref == 'refs/heads/main'

@@ -39,7 +39,7 @@ final class AppModel: ObservableObject {
     @Published var blockDestinationText = "0"
 
     private let runner = MiniProRunner()
-    private let maxBufferBytes = 64 * 1024 * 1024
+    private let maxBufferBytes = 256 * 1024 * 1024
     private let pageBytes = 256
     private var buffer = HexBuffer()
     private var cleanSHA256 = ""
@@ -51,6 +51,10 @@ final class AppModel: ObservableObject {
 
     var canWriteSelected: Bool {
         ChipPolicy.canWrite(selectedChip, details: chipDetails, isT76: isT76)
+    }
+
+    var canEraseSelected: Bool {
+        ChipPolicy.canErase(selectedChip, details: chipDetails, isT76: isT76)
     }
 
     func connect() {
@@ -99,14 +103,15 @@ final class AppModel: ObservableObject {
                 self.status = "Error: The programmer returned an invalid JEDEC ID."
                 return
             }
-            let candidates = ChipPolicy.supportedSOIC16Candidates(forJEDECID: id)
+            let candidates = result["matches"] as? [String] ?? []
+            let total = result["n"] as? Int ?? candidates.count
             self.hits = candidates
             if candidates.isEmpty {
-                self.status = "Detected JEDEC ID 0x\(id.uppercased()). No supported SOIC16 chip matches it. Check the chip and adapter placement."
+                self.status = "Detected JEDEC ID 0x\(id.uppercased()). No SOIC16 database entry matches it. Check the chip and adapter placement."
             } else if candidates.count == 1 {
                 self.selectChip(candidates[0], detectedJEDECID: id)
             } else {
-                self.status = "Detected JEDEC ID 0x\(id.uppercased()). Select the suggested chip to load its database details, then use Read."
+                self.status = "Detected JEDEC ID 0x\(id.uppercased()). \(total) possible SOIC16 entries. Select the exact chip marking before an operation."
             }
         }
     }
@@ -120,18 +125,12 @@ final class AppModel: ObservableObject {
             self.chipDetails = ChipDetails(result)
             if self.chipDetails == nil {
                 self.status = "Error: The chip database returned incomplete details."
-            } else if ChipPolicy.isRequestedReadOnly(chip) {
-                if !self.canReadSelected {
-                    self.status = "Error: The database entry does not match the expected Macronix capacity and ID."
-                } else if let detectedJEDECID {
-                    self.status = "JEDEC ID 0x\(detectedJEDECID.uppercased()) suggests \(chip). Confirm the chip marking and SOIC16 placement before Read."
-                } else {
-                    self.status = "Read-only support is ready for hardware validation. Verify SOIC16 socket placement before inserting the chip."
-                }
             } else if !self.isT76 {
                 self.status = "Chip details loaded. Click Connect / Refresh to check the T76 before chip operations."
             } else if !self.canReadSelected {
-                self.status = "Chip details loaded, but this model is not enabled for hardware operations in this build."
+                self.status = "Chip details loaded. The code region exceeds the 256 MiB backend limit or has no readable code region."
+            } else if let detectedJEDECID {
+                self.status = "JEDEC ID 0x\(detectedJEDECID.uppercased()) suggests \(chip). Confirm the marking and adapter placement before an operation."
             } else {
                 self.status = "Chip details loaded from the database."
             }
@@ -233,6 +232,10 @@ final class AppModel: ObservableObject {
 
     func eraseChip() {
         guard readyForMutation else { return }
+        guard canEraseSelected else {
+            status = "Error: The database does not mark this chip as electrically erasable."
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Erase \(selectedChip)?"
@@ -543,7 +546,7 @@ final class AppModel: ObservableObject {
     private var readyForChipOperation: Bool {
         guard !busy, isT76, !selectedChip.isEmpty else { return false }
         if !canReadSelected {
-            status = "Error: Select a supported chip. The two requested Macronix SOIC16 parts require matching database details."
+            status = "Error: Select a database chip with a code region of 1 to 256 MiB."
             return false
         }
         return true
@@ -552,7 +555,7 @@ final class AppModel: ObservableObject {
     private var readyForMutation: Bool {
         guard readyForChipOperation else { return false }
         if !canWriteSelected {
-            status = "Error: Programming and erase are available only for W27C512 and W27C257."
+            status = "Error: Programming requires a database electronic ID for the pre-mutation hardware check."
             return false
         }
         return true
@@ -692,7 +695,7 @@ final class AppModel: ObservableObject {
         case invalidSize
 
         var errorDescription: String? {
-            "The dump must be between 1 byte and 64 MiB."
+            "The dump must be between 1 byte and 256 MiB."
         }
     }
 

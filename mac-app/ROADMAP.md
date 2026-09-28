@@ -16,11 +16,12 @@ silently change programmer protocol behavior.
 - Show programmer identity, search and select chips, detect ID, read, save,
   preview, blank-check, compare with a file, write with dry-run and read-back
   verification, and erase.
-- Suggest either requested Macronix SOIC16 database entry from a T76 JEDEC
-  autodetect result while keeping unsupported IDs and mutation disabled.
+- Suggest all SOIC16 database entries matching a T76 JEDEC autodetect result.
+  Require the user to confirm the printed part marking when multiple entries
+  share an ID.
 - Serialize operations and require an explicit confirmation for destructive
-  operations. Restrict them to the T76 and the parts already exercised on
-  hardware upstream.
+  operations. Use the entire database on a connected T76, subject to backend
+  image limits, electronic ID checks, and erase capability.
 - Check chip identity before any erase or protection change. Bound imported
   images and network responses, and pin the default vendor archive checksum.
 
@@ -56,18 +57,18 @@ the recorded results with the original dumps.
 
 ### User-requested hardware support
 
-- Support `MX25L51245GMI-10G` (512 Mbit / 64 MiB) and
-  `MX25L25645GMI-08G` (256 Mbit / 32 MiB), as confirmed by the user. Both
-  are 2.7–3.6 V Macronix 16-SOP (300 mil) serial NOR parts according to their
-  [51245G](https://www.macronix.com/Lists/Datasheet/Attachments/9100/MX25L51245G%2C%203V%2C%20512Mb%2C%20v1.8.pdf)
-  and [25645G](https://www.macronix.com/Lists/Datasheet/Attachments/8906/MX25L25645G%2C%203V%2C%20256Mb%2C%20v2.0.pdf)
-  datasheets. The pinned T76 V13.21 database contains `MX25L51245G@SOIC16`
-  (64 MiB, ID `C2201A`) and `MX25L25645G@SOIC16` (32 MiB, ID `C22019`);
-  the GUI now permits read-only operations when those details match. Validate
-  the T76 algorithm and socket or adapter placement, read each chip twice,
-  compare complete dumps, and retain
-  original backups. Enable writing or erase only after successful tests on
-  disposable examples.
+- Prioritize the two chips confirmed by photographs: `MX66L1G45GMI-08G`
+  (1 Gbit / 128 MiB) and `MX25L51245GMI-08G` (512 Mbit / 64 MiB). Both are
+  2.7–3.6 V Macronix 16-SOP (300 mil) serial NOR parts according to their
+  [1 Gbit](https://www.macronix.com/Lists/Datasheet/Attachments/8734/MX66L1G45G%2C%25203V%2C%25201Gb%2C%2520v1.5.pdf)
+  and [512 Mbit](https://www.macronix.com/Lists/Datasheet/Attachments/9100/MX25L51245G%2C%203V%2C%20512Mb%2C%20v1.8.pdf)
+  datasheets. The pinned T76 V13.21 database contains `MX66L1G45G@SOIC16`
+  (128 MiB, ID `C2201B`) and `MX25L51245G@SOIC16` (64 MiB, ID `C2201A`).
+  The GUI exposes database-driven operations for both. Validate the T76
+  algorithm and socket or adapter placement, read each chip twice, compare
+  complete dumps, and retain original backups before using destructive actions
+  on disposable examples. Earlier provisional
+  `MX25L25645GMI-08G` support is not part of this acceptance target.
 - Support the supplied USB cable on the MacBook Pro M3. Record whether it
   negotiates High Speed or SuperSpeed. High Speed can be accepted through the
   existing backend after live tests. The current macOS SuperSpeed path fails
@@ -78,7 +79,7 @@ the recorded results with the original dumps.
 
 ## 3. Additional tools already in source
 
-- Implemented in source: paged full-image hex buffer (64 MiB limit), file
+- Implemented in source: paged full-image hex buffer (256 MiB limit), file
   open/save for raw, Intel HEX, and S-record images, address jump, HEX and ASCII
   search, per-byte editing, range fill,
   block copy/export, undo/redo, SHA-256, and offline byte-for-byte file
@@ -93,13 +94,15 @@ the recorded results with the original dumps.
   chip picker and when the search field opens. Keep search across the full
   database and distinguish favorites from hardware-validated read/write
   support. Do this after the target-Mac detect and read flow is accepted.
+- Replace the in-memory image buffer with a file-backed, paged buffer before
+  supporting chips larger than the current 256 MiB backend limit. Size support
+  should follow validated chip families rather than an arbitrary global cap.
 
 ## 5. Optional backlog — wait for the user's decision
 
 - Fuse/config/lock operations, multi-region memories, and package/socket
   diagrams after their CLI path and chip metadata are verified.
-- Expand the supported T76 chip list beyond the two requested Macronix parts
-  one class at a time after hardware tests;
+- Validate additional database chip families on hardware, one class at a time;
   NAND/eMMC require the proper adapters and recovery checks.
 - Diagnostics, batch workflows, and Developer ID signing/notarization for
   frictionless distribution after the core flows are reliable. Broader
