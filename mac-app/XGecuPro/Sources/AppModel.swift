@@ -3,41 +3,6 @@ import CryptoKit
 import Foundation
 import SwiftUI
 
-struct ChipDetails {
-    let name: String
-    let package: String
-    let pins: Int
-    let codeBytes: Int
-    let dataBytes: Int
-    let extraDataBytes: Int
-    let pageBytes: Int
-    let chipID: String?
-    let blankValue: String
-    let canErase: Bool
-
-    init?(_ result: [String: Any]) {
-        guard let name = result["name"] as? String,
-              let package = result["package"] as? String,
-              let pins = result["pins"] as? Int,
-              let codeBytes = result["code_bytes"] as? Int,
-              let dataBytes = result["data_bytes"] as? Int,
-              let extraDataBytes = result["data2_bytes"] as? Int,
-              let pageBytes = result["page_bytes"] as? Int,
-              let blankValue = result["blank_value"] as? String,
-              let canErase = result["can_erase"] as? Bool else { return nil }
-        self.name = name
-        self.package = package
-        self.pins = pins
-        self.codeBytes = codeBytes
-        self.dataBytes = dataBytes
-        self.extraDataBytes = extraDataBytes
-        self.pageBytes = pageBytes
-        self.chipID = result["chip_id"] as? String
-        self.blankValue = blankValue
-        self.canErase = canErase
-    }
-}
-
 @MainActor
 final class AppModel: ObservableObject {
     @Published var databasePath = UserDefaults.standard.string(forKey: "databasePath") ?? "" {
@@ -80,25 +45,12 @@ final class AppModel: ObservableObject {
     private var cleanSHA256 = ""
     private var lastSearch: Data?
     private var lastFoundOffset: Int?
-    private let readableNames = ["AT27C256R@", "MX27C2000@", "W27C512@", "W27C257@"]
-    private let writableNames = ["W27C512@", "W27C257@"]
-    private let requestedReadOnly: [String: (bytes: Int, id: String)] = [
-        "MX25L51245G@SOIC16": (67_108_864, "C2201A"),
-        "MX25L25645G@SOIC16": (33_554_432, "C22019"),
-    ]
-
     var canReadSelected: Bool {
-        guard isT76 else { return false }
-        let name = selectedChip.uppercased()
-        if readableNames.contains(where: { name.hasPrefix($0) }) { return true }
-        guard let expected = requestedReadOnly[name], let details = chipDetails else { return false }
-        return details.name.uppercased() == name && details.package.uppercased() == "SOIC16"
-            && details.pins == 16 && details.codeBytes == expected.bytes
-            && details.pageBytes == 256 && details.chipID?.uppercased() == expected.id
+        ChipPolicy.canRead(selectedChip, details: chipDetails, isT76: isT76)
     }
 
     var canWriteSelected: Bool {
-        isT76 && writableNames.contains(where: { selectedChip.uppercased().hasPrefix($0) })
+        ChipPolicy.canWrite(selectedChip, isT76: isT76)
     }
 
     func connect() {
@@ -139,7 +91,7 @@ final class AppModel: ObservableObject {
             self.chipDetails = ChipDetails(result)
             if self.chipDetails == nil {
                 self.status = "Error: The chip database returned incomplete details."
-            } else if self.requestedReadOnly[chip.uppercased()] != nil {
+            } else if ChipPolicy.isRequestedReadOnly(chip) {
                 self.status = self.canReadSelected
                     ? "Read-only support is ready for hardware validation. Verify SOIC16 socket placement before inserting the chip."
                     : "Error: The database entry does not match the expected Macronix capacity and ID."
