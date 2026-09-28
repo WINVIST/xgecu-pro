@@ -36,8 +36,9 @@ step 3 reported `OK`, then verify the app's code signature in Terminal:
 codesign --verify --deep --strict --verbose=2 /Applications/XGecuPro.app
 ```
 
-If verification succeeds and the app came from your successful fork workflow,
-remove the download quarantine from this app only and open it again:
+On an unmanaged Mac, if verification succeeds and the app came from your
+successful fork workflow, remove the download quarantine from this app only
+and open it again:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/XGecuPro.app
@@ -47,6 +48,13 @@ open /Applications/XGecuPro.app
 Stop if the checksum or code signature verification fails. The quarantine
 workaround is for this test build; normal distribution requires Developer ID
 signing and notarization.
+
+If **Allow applications from** says its setting is configured by a profile,
+check for the separate **Open Anyway** button after an open attempt. A managed
+Mac may also prohibit that exception. If it does, follow the device
+administrator's policy and use an approved Developer ID signed and notarized
+build; do not change the managed security setting or remove quarantine to
+bypass the policy.
 
 The archive contains the Apple Silicon app and bundled `minipro` helper. It
 does not contain the vendor database or firmware. The app retrieves the pinned

@@ -35,7 +35,9 @@ the recorded results with the original dumps.
 
 1. Install the successful CI archive on macOS 26.7, or build the Release scheme
    locally with Xcode and Rust for `aarch64-apple-darwin`; resolve any install,
-   SDK, or Swift compiler errors on the target Mac.
+   SDK, or Swift compiler errors on the target Mac. If a management profile
+   prevents per-app Gatekeeper exceptions, installation also requires an
+   administrator-approved or Developer ID signed and notarized build.
 2. Test the supplied USB cable directly on the target Mac and record the
    negotiated link speed in macOS System Information (USB) and the result of
    the app's **Connect / Refresh** action. If it negotiates SuperSpeed,
