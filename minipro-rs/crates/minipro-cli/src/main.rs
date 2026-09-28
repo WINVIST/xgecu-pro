@@ -165,6 +165,22 @@ enum Command {
         /// Chip name, e.g. "W27C512@DIP28"
         chip: String,
     },
+    /// Compare FILE with two reads from the chip; short files are padded with the erased byte
+    Verify {
+        /// Chip name, e.g. "W27C512@DIP28"
+        chip: String,
+        /// Expected image file
+        file: PathBuf,
+        /// Input format (default: by extension, else sniffed)
+        #[arg(long, value_enum, default_value_t = Fmt::Auto)]
+        format: Fmt,
+        /// Proceed despite a chip-id mismatch
+        #[arg(long)]
+        force: bool,
+        /// Skip the pin-contact check
+        #[arg(long)]
+        skip_pincheck: bool,
+    },
     /// Show programmer identity and firmware status
     Info,
     /// Search the chip database (capped and counted)
@@ -220,6 +236,7 @@ impl Command {
             Command::Write { .. } => "write",
             Command::Erase { .. } => "erase",
             Command::Blank { .. } => "blank",
+            Command::Verify { .. } => "verify",
             Command::Info => "info",
             Command::Search { .. } => "search",
             Command::Tui => "tui",
@@ -388,6 +405,21 @@ fn main() -> ExitCode {
         ),
         Command::Erase { chip } => run_erase(db_dir, chip, &mut *reporter_for(mode)),
         Command::Blank { chip } => run_blank(db_dir, chip, &mut *reporter_for(mode)),
+        Command::Verify {
+            chip,
+            file,
+            format,
+            force,
+            skip_pincheck,
+        } => run_verify(
+            db_dir,
+            chip,
+            file,
+            *format,
+            *force,
+            *skip_pincheck,
+            &mut *reporter_for(mode),
+        ),
         Command::Info => run_info(db_dir, &mut *reporter_for(mode)),
         Command::Detect { like } => run_detect(db_dir, like, mode),
         Command::Logic { chip } => run_logic(db_dir, chip, mode),
@@ -892,6 +924,52 @@ fn run_blank(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Resul
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_verify(
+    db_dir: Option<&Path>,
+    chip: &str,
+    file: &Path,
+    format: Fmt,
+    force: bool,
+    skip_pincheck: bool,
+    rep: &mut dyn Reporter,
+) -> Result<()> {
+    let db = load_db(db_dir, rep)?;
+    let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
+    let expected = load_image(file, format, dev.code_size, dev.blank_value)?;
+    let mut prog = open_programmer()?;
+    warn_firmware(&*prog, &*db, rep);
+
+    let verified = {
+        let mut txn = Txn::begin(&mut *prog, &dev)?;
+        let (p, s) = txn.parts();
+        pincheck(p, s, skip_pincheck, rep)?;
+        check_chip_id(p, s, &dev, force, rep)?;
+        ops::read_verified(p, s, Region::code(&dev), rep)?
+    };
+    rep.finish(&verify_outcome(&dev.name, &expected, &verified));
+    Ok(())
+}
+
+fn verify_outcome(device: &str, expected: &Image, verified: &ops::VerifiedRead) -> Outcome {
+    let actual = &verified.image.bytes;
+    let first_mismatch = expected
+        .bytes
+        .iter()
+        .zip(actual)
+        .position(|(want, got)| want != got)
+        .or_else(|| {
+            (expected.bytes.len() != actual.len()).then_some(expected.bytes.len().min(actual.len()))
+        });
+    Outcome::Verify {
+        device: device.to_owned(),
+        bytes: actual.len() as u64,
+        matches: verified.stable && first_mismatch.is_none(),
+        stable: verified.stable,
+        first_mismatch: first_mismatch.map(|n| n as u64),
+    }
+}
+
 fn erase_with_programmer(
     prog: &mut dyn Programmer,
     dev: &minipro_core::device::Device,
@@ -1322,6 +1400,16 @@ mod tests {
             Command::Blank { chip } => assert_eq!(chip, "W27C512@DIP28"),
             _ => panic!("expected blank check"),
         }
+        match parse(&["minipro", "verify", "W27C512@DIP28", "expected.hex"])
+            .command
+            .unwrap()
+        {
+            Command::Verify { chip, file, .. } => {
+                assert_eq!(chip, "W27C512@DIP28");
+                assert_eq!(file, PathBuf::from("expected.hex"));
+            }
+            _ => panic!("expected verify"),
+        }
         match parse(&["minipro", "logic", "7400@DIP14"]).command.unwrap() {
             Command::Logic { chip } => assert_eq!(chip, "7400@DIP14"),
             _ => panic!("expected logic"),
@@ -1334,6 +1422,51 @@ mod tests {
             Command::Autodetect { wide } => assert!(!wide, "8-pin is the default"),
             _ => panic!("expected autodetect"),
         }
+    }
+
+    #[test]
+    fn verify_requires_both_reads_to_match_the_file() {
+        let expected = Image {
+            bytes: vec![0xaa, 0xbb],
+        };
+        let mut read = ops::VerifiedRead {
+            image: Image {
+                bytes: expected.bytes.clone(),
+            },
+            stable: true,
+            reads: 2,
+            crc32: 0,
+            sha256: [0; 32],
+        };
+        assert!(matches!(
+            verify_outcome("CHIP", &expected, &read),
+            Outcome::Verify {
+                matches: true,
+                first_mismatch: None,
+                ..
+            }
+        ));
+
+        read.stable = false;
+        assert!(matches!(
+            verify_outcome("CHIP", &expected, &read),
+            Outcome::Verify {
+                matches: false,
+                stable: false,
+                ..
+            }
+        ));
+
+        read.stable = true;
+        read.image.bytes[1] = 0;
+        assert!(matches!(
+            verify_outcome("CHIP", &expected, &read),
+            Outcome::Verify {
+                matches: false,
+                first_mismatch: Some(1),
+                ..
+            }
+        ));
     }
 
     #[test]

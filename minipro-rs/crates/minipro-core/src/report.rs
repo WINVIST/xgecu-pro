@@ -62,6 +62,14 @@ pub enum Outcome {
     },
     /// Result of comparing the selected memory region with its erased value.
     Blank { device: String, blank: bool },
+    /// Comparison of a supplied image with two reads from the seated chip.
+    Verify {
+        device: String,
+        bytes: u64,
+        matches: bool,
+        stable: bool,
+        first_mismatch: Option<u64>,
+    },
     /// A generic success with no payload (erase, write).
     Ok { op: &'static str },
 }
@@ -132,6 +140,23 @@ impl serde::Serialize for Outcome {
                 m.serialize_entry("ok", &true)?;
                 m.serialize_entry("dev", device)?;
                 m.serialize_entry("blank", blank)?;
+                m.end()
+            }
+            Outcome::Verify {
+                device,
+                bytes,
+                matches,
+                stable,
+                first_mismatch,
+            } => {
+                let mut m = ser.serialize_map(Some(7))?;
+                m.serialize_entry("op", "verify")?;
+                m.serialize_entry("ok", &true)?;
+                m.serialize_entry("dev", device)?;
+                m.serialize_entry("bytes", bytes)?;
+                m.serialize_entry("matches", matches)?;
+                m.serialize_entry("stable", stable)?;
+                m.serialize_entry("first_mismatch", first_mismatch)?;
                 m.end()
             }
         }
@@ -215,6 +240,25 @@ mod tests {
         assert_eq!(
             value,
             serde_json::json!({"op": "blank", "ok": true, "dev": "W27C512@DIP28", "blank": false})
+        );
+    }
+
+    #[test]
+    fn verify_serializes_mismatch_and_stability_separately() {
+        let out = Outcome::Verify {
+            device: "W27C512@DIP28".into(),
+            bytes: 65536,
+            matches: false,
+            stable: true,
+            first_mismatch: Some(42),
+        };
+        assert_eq!(
+            serde_json::to_value(out).unwrap(),
+            serde_json::json!({
+                "op": "verify", "ok": true, "dev": "W27C512@DIP28",
+                "bytes": 65536, "matches": false, "stable": true,
+                "first_mismatch": 42
+            })
         );
     }
 

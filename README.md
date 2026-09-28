@@ -112,7 +112,7 @@ want byte-minimal fetches.
 
 ## What it does
 
-`read` · `write` · `erase` · `info` · `search` · `detect` · `logic` ·
+`read` · `verify` · `blank` · `write` · `erase` · `info` · `search` · `detect` · `logic` ·
 `autodetect` · `update` · `tui`
 
 Across the four drivers: memory read/write/erase/blank-check/identify, MCU

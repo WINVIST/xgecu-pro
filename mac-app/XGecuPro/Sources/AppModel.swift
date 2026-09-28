@@ -93,6 +93,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func verifyChip() {
+        guard readyForChipOperation else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform(["verify", selectedChip, url.path]) { [weak self] result in
+            guard let self else { return }
+            if result["stable"] as? Bool != true {
+                self.status = "Повторные чтения чипа различаются; сравнение ненадёжно. Проверьте контакт."
+            } else if result["matches"] as? Bool == true {
+                self.status = "Содержимое чипа совпадает с файлом."
+            } else if let offset = result["first_mismatch"] as? Int {
+                self.status = String(format: "Различие с файлом по адресу 0x%06X.", offset)
+            } else {
+                self.status = "Содержимое чипа не совпадает с файлом."
+            }
+        }
+    }
+
     func writeChip() {
         guard readyForMutation else { return }
         let panel = NSOpenPanel()

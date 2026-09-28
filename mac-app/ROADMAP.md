@@ -10,7 +10,8 @@ silently change programmer protocol behavior.
 - Create the fork and track upstream separately.
 - Build the Rust helper from the checked-in lockfile as part of the Xcode app.
 - Show programmer identity, search and select chips, detect ID, read, save,
-  preview, blank-check, write with dry-run and read-back verification, and erase.
+  preview, blank-check, compare with a file, write with dry-run and read-back
+  verification, and erase.
 - Serialize operations and require an explicit confirmation for destructive
   operations. Restrict them to the T76 and the parts already exercised on
   hardware upstream.
@@ -36,7 +37,8 @@ build and the hardware checks below pass on the target Mac.
 
 ## 3. Closer parity with the original application
 
-- Add a full-image hex viewer/editor, compare, checksums, and editable buffers
+- Add a full-image hex viewer/editor, offline file-to-file compare, checksums,
+  and editable buffers
   while keeping address/size limits explicit.
 - Add fuse/config/lock operations, multi-region memories, and
   package/socket diagrams when their CLI path and chip metadata are verified.

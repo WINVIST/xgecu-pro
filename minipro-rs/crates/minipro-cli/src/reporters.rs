@@ -205,6 +205,23 @@ impl Reporter for HumanReporter {
                     if *blank { "blank" } else { "not blank" }
                 );
             }
+            Outcome::Verify {
+                device,
+                matches,
+                stable,
+                first_mismatch,
+                ..
+            } => {
+                if !stable {
+                    anstream::println!("verify {}: unstable repeated reads", device.bold());
+                } else if *matches {
+                    anstream::println!("{} verify {}: matches", "✓".green().bold(), device.bold());
+                } else if let Some(offset) = first_mismatch {
+                    anstream::println!("verify {}: mismatch at 0x{offset:06x}", device.bold());
+                } else {
+                    anstream::println!("verify {}: mismatch", device.bold());
+                }
+            }
         }
     }
 }
@@ -380,6 +397,21 @@ pub fn outcome_summary(out: &Outcome) -> String {
         Outcome::Blank { device, blank } => format!(
             "blank check {device}: {}",
             if *blank { "blank" } else { "not blank" }
+        ),
+        Outcome::Verify {
+            device,
+            matches,
+            stable,
+            ..
+        } => format!(
+            "verify {device}: {}",
+            if !stable {
+                "unstable read"
+            } else if *matches {
+                "matches"
+            } else {
+                "mismatch"
+            }
         ),
     }
 }
