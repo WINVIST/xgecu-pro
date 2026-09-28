@@ -46,10 +46,12 @@ jobs:
       - name: Check app and bundled helper
         run: |
           app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
+          test "$(uname -m)" = arm64
           test -x "$app/Contents/MacOS/XGecuPro"
           test -x "$app/Contents/Resources/minipro"
           test "$(lipo -archs "$app/Contents/MacOS/XGecuPro")" = arm64
           test "$(lipo -archs "$app/Contents/Resources/minipro")" = arm64
+          "$app/Contents/Resources/minipro" --version
 
       - name: Package unsigned macOS app
         if: github.ref == 'refs/heads/main'
@@ -62,6 +64,7 @@ jobs:
           ditto -x -k "$archive" "$RUNNER_TEMP/repacked"
           test -x "$RUNNER_TEMP/repacked/XGecuPro.app/Contents/MacOS/XGecuPro"
           test -x "$RUNNER_TEMP/repacked/XGecuPro.app/Contents/Resources/minipro"
+          "$RUNNER_TEMP/repacked/XGecuPro.app/Contents/Resources/minipro" --version
           (cd "$RUNNER_TEMP" && shasum -a 256 XGecuPro-macOS-arm64.zip > XGecuPro-macOS-arm64.zip.sha256)
 
       - name: Upload installable app
