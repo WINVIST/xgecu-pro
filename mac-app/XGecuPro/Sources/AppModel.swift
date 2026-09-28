@@ -288,6 +288,17 @@ final class AppModel: ObservableObject {
         status = "Local database selected: \(url.lastPathComponent)."
     }
 
+    func useDefaultDatabase() {
+        guard !busy else { return }
+        databasePath = ""
+        hits = []
+        selectedChip = ""
+        chipDetails = nil
+        status = MiniProRunner.bundledDatabasePath == nil
+            ? "Automatic database selected. Search for a chip again."
+            : "Bundled offline database selected. Search for a chip again."
+    }
+
     func openBuffer() {
         guard !busy, confirmDiscardBuffer() else { return }
         let panel = NSOpenPanel()

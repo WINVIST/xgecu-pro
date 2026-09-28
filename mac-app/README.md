@@ -94,6 +94,8 @@ then shows **Database: bundled for offline use** and needs no database network
 request. Keep that personal copy private; public CI archives and GitHub
 Releases do not include XGecu's proprietary files. A manually chosen local
 database in the GUI still takes precedence over the bundled copy.
+Use **Use Bundled / Automatic Database** to return to the packaged or cached
+default after choosing a different local database.
 
 ## Build on the Mac
 

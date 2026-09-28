@@ -52,6 +52,10 @@ private struct ContentView: View {
                     .lineLimit(2)
                 Button("Choose Local Database…") { model.chooseDatabase() }
                     .disabled(model.busy)
+                if !model.databasePath.isEmpty {
+                    Button("Use Bundled / Automatic Database") { model.useDefaultDatabase() }
+                        .disabled(model.busy)
+                }
             }
             .padding()
             .navigationTitle("Chips")
