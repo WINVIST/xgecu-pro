@@ -11,6 +11,7 @@ use crate::device::{Image, Region};
 use crate::error::{Error, Result};
 use crate::programmer::{Programmer, Session, Txn};
 use crate::report::{Event, Outcome, Reporter};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 /// Lift write-protect ahead of programming, for parts whose database entry
 /// carries `OFF_PROTECT_BEFORE` — mainstream SPI NOR included (a W25Q128BV
@@ -130,6 +131,117 @@ pub struct VerifiedRead {
     pub crc32: u32,
     /// SHA-256 of the first read's bytes.
     pub sha256: [u8; 32],
+}
+
+/// Upper bound for streamed raw reads. Covers the largest code region in the
+/// pinned T76 V13.21 catalog (1,140,850,688 bytes) with room for updates.
+/// In-memory image parsing keeps its separate 256 MiB limit.
+pub const MAX_STREAMED_REGION_BYTES: u64 = 2 << 30;
+
+/// Verification metadata for a raw dump written without retaining the image.
+#[derive(Debug)]
+pub struct StreamedRead {
+    pub bytes: u64,
+    pub stable: bool,
+    pub crc32: u32,
+    pub sha256: [u8; 32],
+}
+
+impl StreamedRead {
+    pub fn outcome(&self, device: &str, link: LinkSpeed) -> Outcome {
+        Outcome::Read {
+            device: device.to_owned(),
+            bytes: self.bytes,
+            crc32: self.crc32,
+            sha256: self.sha256,
+            reads: 2,
+            stable: self.stable,
+            link,
+        }
+    }
+}
+
+/// Save a raw region to an empty seekable file and compare a second full read
+/// against it block by block. The caller owns atomic publication of the file.
+pub fn read_verified_to_file<F: Read + Write + Seek>(
+    prog: &mut dyn Programmer,
+    s: &Session,
+    region: Region,
+    file: &mut F,
+    rep: &mut dyn Reporter,
+) -> Result<StreamedRead> {
+    if region.len == 0 || region.len > MAX_STREAMED_REGION_BYTES {
+        return Err(Error::Format(
+            "region exceeds the streamed read limit".into(),
+        ));
+    }
+    if file.seek(SeekFrom::End(0))? != 0 {
+        return Err(Error::Format("streamed read output must be empty".into()));
+    }
+
+    let mut crc = crc32fast::Hasher::new();
+    let mut sha = sha2::Sha256::new();
+    {
+        let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
+        let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Read));
+        let mut done = 0u64;
+        rep.event(&Event::Progress {
+            done,
+            total: region.len,
+        });
+        for req in region.blocks(step) {
+            let block = mem.read_block(s, &req)?;
+            if block.len() != req.len as usize {
+                return Err(Error::Protocol);
+            }
+            file.write_all(&block)?;
+            crc.update(&block);
+            sha.update(&block);
+            done += u64::from(req.len);
+            rep.event(&Event::Progress {
+                done,
+                total: region.len,
+            });
+        }
+    }
+
+    file.flush()?;
+    file.seek(SeekFrom::Start(0))?;
+    let mut stable = true;
+    {
+        let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
+        let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Read));
+        let mut done = 0u64;
+        rep.event(&Event::Progress {
+            done,
+            total: region.len,
+        });
+        for req in region.blocks(step) {
+            let block = mem.read_block(s, &req)?;
+            if block.len() != req.len as usize {
+                return Err(Error::Protocol);
+            }
+            let mut saved = vec![0u8; block.len()];
+            file.read_exact(&mut saved)?;
+            stable &= block == saved;
+            done += u64::from(req.len);
+            rep.event(&Event::Progress {
+                done,
+                total: region.len,
+            });
+        }
+    }
+    if !stable {
+        rep.event(&Event::Note(
+            "re-read differs from first read: dump is unstable".into(),
+        ));
+    }
+    Ok(StreamedRead {
+        bytes: region.len,
+        stable,
+        crc32: crc.finalize(),
+        sha256: sha.finalize().into(),
+    })
 }
 
 impl VerifiedRead {
@@ -504,6 +616,65 @@ mod tests {
         // The image is the *first* read; hashes must match it.
         assert_eq!(v.image.bytes, vec![0xa5; 8]);
         assert_eq!(v.crc32, crc32fast::hash(&[0xa5; 8]));
+    }
+
+    #[test]
+    fn streamed_raw_read_matches_in_memory_evidence_and_flags_instability() {
+        let data = b"123456789".to_vec();
+        let dev = test_device(9, 4);
+        let s = session_for(&dev);
+        let mut prog = FakeProg::new(data.clone());
+        let mut file = std::io::Cursor::new(Vec::new());
+        let mut rep = Collect::default();
+        let read =
+            read_verified_to_file(&mut prog, &s, Region::code(&dev), &mut file, &mut rep).unwrap();
+        assert_eq!(file.into_inner(), data);
+        assert!(read.stable);
+        assert_eq!(read.bytes, 9);
+        assert_eq!(read.crc32, 0xcbf4_3926);
+        assert_eq!(
+            read.sha256.as_slice(),
+            sha2::Sha256::digest(b"123456789").as_slice()
+        );
+
+        let dev = test_device(8, 8); // one block per pass
+        let s = session_for(&dev);
+        let mut prog = FakeProg::new(vec![0xa5; 8]);
+        prog.flaky = true;
+        let mut file = std::io::Cursor::new(Vec::new());
+        let read =
+            read_verified_to_file(&mut prog, &s, Region::code(&dev), &mut file, &mut rep).unwrap();
+        assert!(!read.stable);
+        assert_eq!(file.into_inner(), vec![0xa5; 8]);
+        assert_eq!(read.crc32, crc32fast::hash(&[0xa5; 8]));
+    }
+
+    #[test]
+    fn streamed_raw_read_rejects_nonempty_output_and_oversized_region() {
+        let dev = test_device(8, 8);
+        let s = session_for(&dev);
+        let mut prog = FakeProg::new(vec![0xa5; 8]);
+        let mut rep = Collect::default();
+        let mut file = std::io::Cursor::new(vec![0u8]);
+        assert_eq!(
+            read_verified_to_file(&mut prog, &s, Region::code(&dev), &mut file, &mut rep)
+                .unwrap_err()
+                .code(),
+            "format"
+        );
+        let mut file = std::io::Cursor::new(Vec::new());
+        let too_large = Region {
+            kind: MemoryKind::Code,
+            offset: 0,
+            len: MAX_STREAMED_REGION_BYTES + 1,
+        };
+        assert_eq!(
+            read_verified_to_file(&mut prog, &s, too_large, &mut file, &mut rep)
+                .unwrap_err()
+                .code(),
+            "format"
+        );
+        assert_eq!(prog.reads, 0);
     }
 
     #[test]

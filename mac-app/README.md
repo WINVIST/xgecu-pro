@@ -133,7 +133,10 @@ unstable result and opens the saved dump in a paged hex buffer. The buffer can
 also open local raw, Intel HEX, and Motorola S-record files, jump to a hex
 address, find a byte sequence, and fill an inclusive address range with one
 byte. Address gaps in HEX and S-record files are filled with `0xFF`. The image
-limit is 256 MiB; text image inputs are limited to 256 MiB on disk. **Save As…**
+buffer, verification, and programming limit is 256 MiB; text image inputs are
+limited to 256 MiB on disk. Larger code regions up to 2 GiB can be read to a
+raw file with a second-pass stability check. Their dumps are not opened in
+the hex buffer. **Save As…**
 chooses raw, Intel HEX, or S-record output from the file extension. Save
 edited buffers with **Save As…** before choosing a file to program; the
 **Program…** action programs the file selected in its dialog, not unsaved buffer
@@ -147,8 +150,9 @@ to a separate raw file. The app asks before discarding unsaved changes on a new
 read or open.
 
 The GUI uses the entire selected database, without a hardcoded chip allowlist.
-Read, ID check, blank check, and verify are offered for entries with a nonempty
-code region up to the current 256 MiB backend limit. Program is offered when
+Read, ID check, and blank check are offered for entries with a nonempty
+code region up to the 2 GiB streamed read limit. Verify is offered up to
+256 MiB. Program is offered up to 256 MiB when
 the entry also has an electronic ID; Erase additionally requires the database
 to mark the part electrically erasable. The backend can still refuse an
 unsupported chip family or algorithm. These controls are **not** a claim that

@@ -53,6 +53,10 @@ final class AppModel: ObservableObject {
         ChipPolicy.canWrite(selectedChip, details: chipDetails, isT76: isT76)
     }
 
+    var canVerifySelected: Bool {
+        ChipPolicy.canVerify(selectedChip, details: chipDetails, isT76: isT76)
+    }
+
     var canEraseSelected: Bool {
         ChipPolicy.canErase(selectedChip, details: chipDetails, isT76: isT76)
     }
@@ -128,7 +132,7 @@ final class AppModel: ObservableObject {
             } else if !self.isT76 {
                 self.status = "Chip details loaded. Click Connect / Refresh to check the T76 before chip operations."
             } else if !self.canReadSelected {
-                self.status = "Chip details loaded. The code region exceeds the 256 MiB backend limit or has no readable code region."
+                self.status = "Chip details loaded. The code region exceeds the 2 GiB read limit or has no readable code region."
             } else if let detectedJEDECID {
                 self.status = "JEDEC ID 0x\(detectedJEDECID.uppercased()) suggests \(chip). Confirm the marking and adapter placement before an operation."
             } else {
@@ -152,13 +156,29 @@ final class AppModel: ObservableObject {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = selectedChip.replacingOccurrences(of: "@", with: "_") + ".bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let largeRaw = (chipDetails?.codeBytes ?? 0) > ChipPolicy.maxImageBytes
+        if largeRaw && ["hex", "ihex", "s19", "s28", "s37", "srec"].contains(url.pathExtension.lowercased()) {
+            status = "Error: Chips larger than 256 MiB require a raw dump (.bin)."
+            return
+        }
         perform(["read", selectedChip, url.path]) { [weak self] result in
             guard let self else { return }
             let stable = result["stable"] as? Bool ?? false
             let message = stable
                 ? "Dump saved and confirmed by a second read."
                 : "The dump was saved, but the second read differed. Check the chip contact and read it again."
-            self.openImage(url, successStatus: message)
+            if largeRaw {
+                self.buffer.load(Data())
+                self.bufferSize = 0
+                self.bufferOffset = 0
+                self.updateBufferState()
+                self.cleanSHA256 = self.bufferSHA256
+                self.bufferDirty = false
+                self.lastFile = nil
+                self.status = message + " The raw dump is too large for the in-app hex buffer."
+            } else {
+                self.openImage(url, successStatus: message)
+            }
         }
     }
 
@@ -174,6 +194,10 @@ final class AppModel: ObservableObject {
 
     func verifyChip() {
         guard readyForChipOperation else { return }
+        guard canVerifySelected else {
+            status = "Error: Verification of chips larger than 256 MiB is not yet supported."
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -546,7 +570,7 @@ final class AppModel: ObservableObject {
     private var readyForChipOperation: Bool {
         guard !busy, isT76, !selectedChip.isEmpty else { return false }
         if !canReadSelected {
-            status = "Error: Select a database chip with a code region of 1 to 256 MiB."
+            status = "Error: Select a database chip with a code region of 1 byte to 2 GiB."
             return false
         }
         return true
@@ -555,7 +579,7 @@ final class AppModel: ObservableObject {
     private var readyForMutation: Bool {
         guard readyForChipOperation else { return false }
         if !canWriteSelected {
-            status = "Error: Programming requires a database electronic ID for the pre-mutation hardware check."
+            status = "Error: Programming requires a database electronic ID and a code region no larger than 256 MiB."
             return false
         }
         return true

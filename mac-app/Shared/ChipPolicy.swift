@@ -36,13 +36,14 @@ struct ChipDetails {
 }
 
 enum ChipPolicy {
-    // The image bound comes from the Rust backend. It is not a model allowlist.
+    // These bounds come from the Rust backend. They are not a model allowlist.
     static let maxImageBytes = 256 * 1024 * 1024
+    static let maxStreamedReadBytes = 2 * 1024 * 1024 * 1024
 
     static func canRead(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
         guard isT76, let details else { return false }
         return details.name == name && !details.package.isEmpty && details.pins > 0
-            && details.codeBytes > 0 && details.codeBytes <= maxImageBytes
+            && details.codeBytes > 0 && details.codeBytes <= maxStreamedReadBytes
             && details.dataBytes >= 0 && details.extraDataBytes >= 0
             && details.pageBytes >= 0
     }
@@ -50,7 +51,12 @@ enum ChipPolicy {
     static func canWrite(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
         guard canRead(name, details: details, isT76: isT76), let details else { return false }
         // Mutation requires a hardware ID check in the bundled CLI.
-        return !(details.chipID?.isEmpty ?? true)
+        return details.codeBytes <= maxImageBytes && !(details.chipID?.isEmpty ?? true)
+    }
+
+    static func canVerify(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {
+        canRead(name, details: details, isT76: isT76)
+            && (details?.codeBytes ?? 0) <= maxImageBytes
     }
 
     static func canErase(_ name: String, details: ChipDetails?, isT76: Bool) -> Bool {

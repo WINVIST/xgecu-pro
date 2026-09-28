@@ -769,9 +769,39 @@ fn run_read(
 ) -> Result<()> {
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
+    let large_raw = dev.code_size > minipro_core::format::MAX_IMAGE_BYTES as u64;
+    if large_raw && format.for_output(file) != Format::Raw {
+        return Err(Error::Format(
+            "chips larger than 256 MiB can only be read to a raw output file".into(),
+        ));
+    }
+    if dev.code_size > ops::MAX_STREAMED_REGION_BYTES {
+        return Err(Error::Format(
+            "chip capacity exceeds the streamed read limit".into(),
+        ));
+    }
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
     let link = prog.info().link;
+
+    if large_raw {
+        let parent = file
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        let verified = {
+            let mut txn = Txn::begin(&mut *prog, &dev)?;
+            let (p, s) = txn.parts();
+            pincheck(p, s, skip_pincheck, rep)?;
+            check_chip_id(p, s, &dev, force, rep)?;
+            ops::read_verified_to_file(p, s, Region::code(&dev), temporary.as_file_mut(), rep)?
+        };
+        temporary.as_file().sync_all()?;
+        temporary.persist(file).map_err(|error| error.error)?;
+        rep.finish(&verified.outcome(&dev.name, link));
+        return Ok(());
+    }
 
     let verified = {
         let mut txn = Txn::begin(&mut *prog, &dev)?; // ends (de-energizes) on drop

@@ -84,7 +84,7 @@ private struct ContentView: View {
                     Button("Blank Check") { model.blankCheck() }
                         .disabled(!model.canReadSelected)
                     Button("Verify Against File…") { model.verifyChip() }
-                        .disabled(!model.canReadSelected)
+                        .disabled(!model.canVerifySelected)
                     Button("Program…") { model.writeChip() }
                         .disabled(!model.canWriteSelected)
                     Button("Erase") { model.eraseChip() }

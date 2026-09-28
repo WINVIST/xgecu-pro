@@ -94,11 +94,13 @@ the recorded results with the original dumps.
   chip picker and when the search field opens. Keep search across the full
   database and distinguish favorites from hardware-validated read/write
   support. Do this after the target-Mac detect and read flow is accepted.
-- Replace the in-memory image buffer with a file-backed, paged buffer before
-  supporting chips larger than the current 256 MiB backend limit. The pinned
+- Replace the in-memory image buffer with a file-backed, paged buffer, and add
+  streamed verification and programming for chips larger than 256 MiB. Raw
+  reads up to 2 GiB already stream to a file and compare a second hardware
+  read without loading the full image into RAM. The pinned
   T76 V13.21 catalog contains code regions up to 1,140,850,688 bytes
   (`S34ML08G201Txx00@TSOP48`, including NAND spare area), so a catalog-wide
-  workflow needs streaming backend reads, verification, conversion, and GUI
+  workflow needs streaming verification, conversion, programming, and GUI
   browsing without loading two full images into RAM. This catalog maximum is
   a sizing target, not evidence that its NAND algorithm works on the target
   hardware. Keep per-family hardware acceptance separate from size support.
