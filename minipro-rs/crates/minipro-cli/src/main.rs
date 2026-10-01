@@ -826,6 +826,7 @@ fn run_read(
 /// to `code_size` with the chip's erased byte (`blank`, so read-back verify of
 /// the tail matches the real erased state), and reject one larger than the chip.
 fn load_image(file: &Path, format: Fmt, code_size: u64, blank: u8) -> Result<Image> {
+    use std::io::Read as _;
     let need = usize::try_from(code_size)
         .map_err(|_| Error::Format("chip capacity is too large for this host".into()))?;
     if need > minipro_core::format::MAX_IMAGE_BYTES {
@@ -833,12 +834,20 @@ fn load_image(file: &Path, format: Fmt, code_size: u64, blank: u8) -> Result<Ima
             "chip capacity exceeds the supported image limit".into(),
         ));
     }
-    if std::fs::metadata(file)?.len() > (256 << 20) {
+    const MAX_INPUT_BYTES: u64 = 256 << 20;
+    let input = std::fs::File::open(file)?;
+    if input.metadata()?.len() > MAX_INPUT_BYTES {
         return Err(Error::Format(
             "image file exceeds the 256 MiB input limit".into(),
         ));
     }
-    let raw = std::fs::read(file)?;
+    let mut raw = Vec::new();
+    input.take(MAX_INPUT_BYTES + 1).read_to_end(&mut raw)?;
+    if raw.len() as u64 > MAX_INPUT_BYTES {
+        return Err(Error::Format(
+            "image file exceeds the 256 MiB input limit".into(),
+        ));
+    }
     let mut image = format
         .for_input(file, &raw)
         .parse_with_limit(&raw, blank, need)?;

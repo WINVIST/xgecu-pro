@@ -44,6 +44,19 @@ const MAX_ARCHIVE_BYTES: u64 = 96 << 20;
 /// Local cache filename for the fetched archive.
 const ARCHIVE_FILE: &str = "xgpro_vendor.rar";
 
+fn source_key(url: &str) -> String {
+    let digest = Sha256::digest(url.as_bytes());
+    digest[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn archive_file(url: &str) -> String {
+    if url == DEFAULT_VENDOR_ARCHIVE {
+        ARCHIVE_FILE.to_string()
+    } else {
+        format!("xgpro-custom-{}.rar", source_key(url))
+    }
+}
+
 /// RAR5 / RAR4 signatures — a cheap integrity gate that catches the common
 /// failure of a mirror serving an HTML error page with a 200 status.
 const RAR5_MAGIC: &[u8] = b"Rar!\x1a\x07\x01\x00";
@@ -109,7 +122,7 @@ impl From<FetchError> for Error {
 
 /// Path of the cached archive, if a plausible one is already present.
 pub fn cached_archive(cache_dir: &Path, url: &str) -> Option<PathBuf> {
-    let p = cache_dir.join(ARCHIVE_FILE);
+    let p = cache_dir.join(archive_file(url));
     let big_enough = std::fs::metadata(&p)
         .map(|m| m.is_file() && m.len() >= MIN_ARCHIVE_BYTES && m.len() <= MAX_ARCHIVE_BYTES)
         .unwrap_or(false);
@@ -169,7 +182,7 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
 
     // Write via a temporary file so an interrupted run never leaves a partial
     // archive that a later run would trust.
-    let final_path = cache_dir.join(ARCHIVE_FILE);
+    let final_path = cache_dir.join(archive_file(url));
     let tmp = final_path.with_extension("rar.part");
     std::fs::write(&tmp, &bytes).map_err(|e| FetchError::Cache {
         path: tmp.clone(),
@@ -190,17 +203,19 @@ pub fn ensure_archive(cache_dir: &Path, url: &str) -> std::result::Result<PathBu
 
 /// Where the unpacked database lives inside the cache.
 const VERIFIED_UNPACK_DIR: &str = "xgpro-pinned-v1321";
-const CUSTOM_UNPACK_DIR: &str = "xgpro-custom";
+fn unpack_dir(url: &str) -> String {
+    if url == DEFAULT_VENDOR_ARCHIVE {
+        VERIFIED_UNPACK_DIR.to_string()
+    } else {
+        format!("xgpro-custom-{}", source_key(url))
+    }
+}
 
 /// A successful extraction keeps the database and removes the archive. Check
 /// this before announcing a download on a later CLI invocation.
 pub fn has_unpacked_database(cache_dir: &Path, url: &str) -> bool {
     cache_dir
-        .join(if url == DEFAULT_VENDOR_ARCHIVE {
-            VERIFIED_UNPACK_DIR
-        } else {
-            CUSTOM_UNPACK_DIR
-        })
+        .join(unpack_dir(url))
         .join("InfoICT76.dll")
         .is_file()
 }
@@ -213,11 +228,7 @@ pub fn has_unpacked_database(cache_dir: &Path, url: &str) -> bool {
 /// the second result, so the caller can tell "could not get the file" from
 /// "got the file but cannot open it".
 pub fn open(cache_dir: &Path, url: &str) -> std::result::Result<Result<DllDb>, FetchError> {
-    let unpacked = cache_dir.join(if url == DEFAULT_VENDOR_ARCHIVE {
-        VERIFIED_UNPACK_DIR
-    } else {
-        CUSTOM_UNPACK_DIR
-    });
+    let unpacked = cache_dir.join(unpack_dir(url));
     // Already unpacked by an earlier run: no network, no extractor needed.
     if let Ok(db) = DllDb::load(&unpacked) {
         return Ok(Ok(db));
@@ -295,6 +306,21 @@ mod tests {
         std::fs::write(unpacked.join("InfoICT76.dll"), b"cached").unwrap();
         assert!(has_unpacked_database(dir.path(), DEFAULT_VENDOR_ARCHIVE));
         assert!(cached_archive(dir.path(), DEFAULT_VENDOR_ARCHIVE).is_none());
+    }
+
+    #[test]
+    fn custom_vendor_sources_do_not_share_cached_files() {
+        let first = "https://example.invalid/first.rar";
+        let second = "https://example.invalid/second.rar";
+        assert_ne!(archive_file(first), archive_file(second));
+        assert_ne!(unpack_dir(first), unpack_dir(second));
+        assert_eq!(archive_file(DEFAULT_VENDOR_ARCHIVE), ARCHIVE_FILE);
+        let dir = tempfile::tempdir().unwrap();
+        let unpacked = dir.path().join(unpack_dir(first));
+        std::fs::create_dir(&unpacked).unwrap();
+        std::fs::write(unpacked.join("InfoICT76.dll"), b"cached").unwrap();
+        assert!(has_unpacked_database(dir.path(), first));
+        assert!(!has_unpacked_database(dir.path(), second));
     }
 
     #[test]

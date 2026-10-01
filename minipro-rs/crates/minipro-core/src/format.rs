@@ -283,7 +283,7 @@ fn parse_srec(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
         }
         let n = i + 1;
         let bytes = line.as_bytes();
-        if bytes[0] != b'S' || line.len() < 4 {
+        if bytes[0] != b'S' || line.len() < 4 || !line.is_ascii() {
             return Err(Error::Format(format!("S-record line {n}: not an S-record")));
         }
         let rec = decode_hex(&line[2..])
@@ -522,6 +522,14 @@ mod tests {
         );
         assert_eq!(
             Format::SRec.parse(b"S101FE\n", PAD).unwrap_err().code(),
+            "format"
+        );
+    }
+
+    #[test]
+    fn non_ascii_srecord_is_an_error_not_a_panic() {
+        assert_eq!(
+            Format::SRec.parse("Séé\n".as_bytes(), PAD).unwrap_err().code(),
             "format"
         );
     }

@@ -15,9 +15,10 @@ requires the target Mac and a connected T76.
 
 This path does not require Xcode or Rust on your Mac:
 
-Once a GitHub Release is published, download its app ZIP and matching
+Download the latest GitHub Release app ZIP and matching
 `.sha256` file from the [Releases page](https://github.com/WINVIST/xgecu-pro/releases)
-and start at step 3 below. Until then, use a successful CI artifact.
+and start at step 3 below. A successful CI artifact is also available for
+testing changes before a release.
 
 1. Sign in to GitHub and open the latest successful `macOS arm64` run for `main`
    on the [Actions page](https://github.com/WINVIST/xgecu-pro/actions/workflows/macos.yml).

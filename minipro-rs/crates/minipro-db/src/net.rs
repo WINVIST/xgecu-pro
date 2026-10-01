@@ -41,6 +41,13 @@ const META_FILE: &str = "source.meta"; // "<version-tag>\n<utc-day>\n"
 /// wrong FPGA bitstream for a chip.
 const MIRROR_DIR: &str = "mirror";
 
+fn mirror_cache_dir(root: &Path, base_url: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(base_url.trim_end_matches('/').as_bytes());
+    let key: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    root.join(MIRROR_DIR).join(key)
+}
+
 /// A [`DllDb`] provisioned from a mirror, cached as the vendor files
 /// themselves; a once-a-day version check keeps only the latest on disk.
 pub struct HttpDb {
@@ -52,7 +59,7 @@ pub struct HttpDb {
 impl HttpDb {
     pub fn open(base_url: &str, cache_dir: &Path, dll_sha256: Option<&str>) -> Result<Self> {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let dir = cache_dir.join(MIRROR_DIR);
+        let dir = mirror_cache_dir(cache_dir, &base_url);
         std::fs::create_dir_all(dir.join("algoT76"))?;
         let dll_path = dir.join("InfoICT76.dll");
         let dll_url = format!("{base_url}/InfoICT76.dll");
@@ -95,6 +102,10 @@ impl HttpDb {
                 .or_else(|| head_version(&dll_url).ok())
                 .unwrap_or_default();
             write_meta(&dir, &tag, today);
+        }
+
+        if let Some(want) = dll_sha256 {
+            verify_sha256(&std::fs::read(&dll_path)?, want)?;
         }
 
         Ok(HttpDb {
@@ -265,6 +276,28 @@ mod tests {
             verify_sha256(b"tampered", empty).unwrap_err().code(),
             "format"
         );
+    }
+
+    #[test]
+    fn mirror_cache_is_bound_to_its_source() {
+        let root = Path::new("cache");
+        assert_eq!(mirror_cache_dir(root, "https://a/"), mirror_cache_dir(root, "https://a"));
+        assert_ne!(mirror_cache_dir(root, "https://a"), mirror_cache_dir(root, "https://b"));
+    }
+
+    #[test]
+    fn cached_mirror_dll_still_checks_requested_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let url = "https://example.invalid/mirror";
+        let dir = mirror_cache_dir(root.path(), url);
+        std::fs::create_dir_all(dir.join("algoT76")).unwrap();
+        std::fs::write(dir.join("InfoICT76.dll"), b"wrong source").unwrap();
+        write_meta(&dir, "cached", utc_day());
+        let empty_digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert!(matches!(
+            HttpDb::open(url, root.path(), Some(empty_digest)),
+            Err(Error::Format(_))
+        ));
     }
 
     #[test]

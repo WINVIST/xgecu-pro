@@ -26,7 +26,8 @@
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use minipro_core::error::{Error, Result};
 
@@ -113,20 +114,76 @@ impl Extractor {
                 cmd.args(["x", "-y"]).arg(archive).args(members).arg(dest);
             }
         }
-        let out = cmd
-            .output()
+        // Extractors process untrusted archives. Keep both their runtime and
+        // output bounded, including tools that ignore member selection.
+        let mut child = cmd
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
             .map_err(|e| Error::Format(format!("could not run {}: {e}", self.program())))?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            return Err(Error::Format(format!(
-                "{} failed on {}: {}",
-                self.program(),
-                archive.display(),
-                err.trim().lines().next().unwrap_or("(no output)")
-            )));
+        let started = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait()? {
+                if status.success() {
+                    if !extracted_tree_exceeds_limit(dest)? {
+                        return Ok(());
+                    }
+                    return Err(Error::Format(format!(
+                        "{} extraction exceeded the 1 GiB/20,000-file limit",
+                        self.program()
+                    )));
+                }
+                return Err(Error::Format(format!(
+                    "{} failed on {} (exit status {status})",
+                    self.program(), archive.display()
+                )));
+            }
+            let over_limit = match extracted_tree_exceeds_limit(dest) {
+                Ok(value) => value,
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(e);
+                }
+            };
+            if started.elapsed() > Duration::from_secs(300) || over_limit {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::Format(format!(
+                    "{} extraction exceeded the five-minute or 1 GiB/20,000-file limit",
+                    self.program()
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
-        Ok(())
     }
+}
+
+fn extracted_tree_exceeds_limit(root: &Path) -> Result<bool> {
+    const MAX_BYTES: u64 = 1 << 30;
+    const MAX_ENTRIES: u64 = 20_000;
+    let mut bytes = 0u64;
+    let mut entries = 0u64;
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for item in std::fs::read_dir(dir)? {
+            let item = item?;
+            entries += 1;
+            if entries > MAX_ENTRIES {
+                return Ok(true);
+            }
+            let meta = std::fs::symlink_metadata(item.path())?;
+            if meta.is_dir() {
+                pending.push(item.path());
+            } else if meta.is_file() {
+                bytes = bytes.saturating_add(meta.len());
+                if bytes > MAX_BYTES {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// The first usable extractor on this system, if any.
@@ -355,6 +412,16 @@ mod tests {
             find_database_dir(dir.path()).as_deref(),
             Some(sub.as_path())
         );
+    }
+
+    #[test]
+    fn extraction_tree_limit_counts_bytes_and_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("small"), b"ok").unwrap();
+        assert!(!extracted_tree_exceeds_limit(dir.path()).unwrap());
+        let large = std::fs::File::create(dir.path().join("large")).unwrap();
+        large.set_len((1u64 << 30) + 1).unwrap();
+        assert!(extracted_tree_exceeds_limit(dir.path()).unwrap());
     }
 
     /// At least one extractor should exist in a normal dev environment; this is

@@ -1,14 +1,48 @@
-# xgecu-pro
+# XGecu Pro
 
-**A Rust redesign and reimplementation of [minipro](https://gitlab.com/nmatt0/minipro/-/tree/t76-improvements) for XGecu USB chip programmers — plus the reverse-engineering notes behind it.**
+**A native macOS app and Rust command-line tools for XGecu chip programmers.**
 
-The centerpiece is [`minipro-rs/`](minipro-rs/): a Rust CLI that drives the
-**T76**, **T56**, **T48**, and **TL866II+** through one trait-based driver layer. No libusb, no
-zlib, no XML step — it reads XGecu's `InfoICT76.dll` chip database directly and
-ships human / JSON / TUI output modes.
+[Download for Apple Silicon](https://github.com/WINVIST/xgecu-pro/releases) ·
+[Install guide](mac-app/README.md) ·
+[Hardware results](mac-app/HARDWARE-VALIDATION.md) ·
+[Roadmap](mac-app/ROADMAP.md)
 
-For a native Apple Silicon windowed frontend focused on the T76, see
-[`mac-app/`](mac-app/README.md).
+The macOS app brings T76 connect, SOIC16 auto-detection, chip search, read,
+blank check, file comparison, programming with readback verification, and
+erase into one window. Its hex view can open, inspect, edit, and save images.
+The bundled `minipro` helper is also available as a CLI. The Rust workspace
+includes drivers for T56, T48, and TL866II+; those additional families have
+not been validated on the target hardware. This project builds on
+[minipro](https://gitlab.com/nmatt0/minipro/-/tree/t76-improvements) and the
+upstream [xgecu-pro](https://github.com/jfabienke/xgecu-pro) repository.
+
+### Verified on hardware
+
+On a MacBook Pro M3 with macOS 26.7, the T76 connected directly through its
+supplied USB cable at High Speed. Two 128 MiB reads of `MX66L1G45GMI-08G`
+matched byte-for-byte after a program and readback verification. Two 64 MiB
+reads of `MX25L51245GMI-08G` also matched, and comparison against a saved
+file succeeded. The exact checks and remaining coverage are in the
+[hardware record](mac-app/HARDWARE-VALIDATION.md). Other chips in the catalog
+are selectable, but that alone does not establish hardware validation.
+
+### Install
+
+Download `XGecuPro-macOS-arm64.zip` and its `.sha256` file from the
+[latest release](https://github.com/WINVIST/xgecu-pro/releases). Verify the
+checksum, extract the app, and move it to Applications. The app is ad hoc
+signed and is not Apple notarized; follow the [install guide](mac-app/README.md)
+for verification and macOS quarantine troubleshooting.
+
+The public download contains no XGecu database or firmware. On first use the
+app verifies and extracts the pinned vendor database archive into the local
+cache. Later launches reuse that cache. A [private offline copy](mac-app/README.md#make-a-personal-offline-copy)
+can be made from an owner's local database.
+
+## Command-line tools
+
+[`minipro-rs/`](minipro-rs/) contains the Rust CLI with human, JSON, and TUI
+output modes. It reads XGecu's `InfoICT76.dll` chip database directly.
 
 ```
 minipro info                          # identify the programmer
@@ -24,12 +58,12 @@ This is a **young project handling real hardware**. Honest state of play:
 
 | Path | Status |
 |---|---|
-| **T76 reads** | ✅ **Hardware-verified** — byte-identical across repeated reads on four parts (AT27C256R, MX27C2000, W27C512, W27C257), and re-verified after block stepping moved onto the catalog's `read_buffer_size`: a 32 KB read now issues 64 × 1024-byte transfers instead of 16 × 4096 and still re-read-verifies stable |
+| **T76 reads** | ✅ **Hardware-verified** — byte-identical across repeated reads on six parts, including 128 MiB `MX66L1G45GMI-08G` and 64 MiB `MX25L51245GMI-08G` on the target Mac; see the [hardware record](mac-app/HARDWARE-VALIDATION.md) |
 | **T76 write** (parallel EPROM/EEPROM) | ✅ **Hardware-verified** — bit-exact on an MX27C2000, plus three full write→verify cycles each on a W27C512 (64 KB) and W27C257 (32 KB), distinct data every cycle |
 | **T76 erase** | ✅ **Hardware-verified** — three erase→blank-check cycles each on a W27C512 and a W27C257, chip verifiably all-0xFF after every one |
 | **T76 NAND / eMMC / firmware update** | ⚠️ Implemented, **never exercised on a device**. `write --dry-run` checks setup without programming; `update` refuses without `--confirm`, verifies bootloader entry both ways, and recovers a bootloader-stuck device |
-| **T76 write** (every other chip class) | ⚠️ Only the parallel-EPROM path has touched silicon |
-| **Writing protect-before parts** (10,123 devices incl. most SPI NOR) | ⚠️ Protect-off sequence implemented per the C's, **not yet verified on silicon** |
+| **T76 write** (other chip classes) | ⚠️ `MX66L1G45GMI-08G` code-region program completed with readback verification on the target Mac. The original pre-program dump is unconfirmed; MX25 programming and most catalog classes remain untested |
+| **Writing protect-before parts** (10,123 devices incl. most SPI NOR) | ⚠️ The MX66 program path completed on the target Mac; wider protection behavior remains untested |
 | **T56 / T48 (all operations)** | ⚠️ Complete drivers, **never run against real silicon** — no T48/T56 hardware here |
 | **T76 pin-contact check** | ❌ **Removed** — it measured nothing *and corrupted every read*; the T76 no longer advertises it |
 | **Erasing a one-time-programmable part** | ❌ Refused with a reason — the database's erase flag is honoured, as the C tool does |
@@ -37,9 +71,8 @@ This is a **young project handling real hardware**. Honest state of play:
 | **TL866II+** | ⚠️ **Reference-only** — full driver pinned against the C (incl. its interlaced dual-endpoint transfers), zero silicon contact so far |
 | **TL866A/CS** | ❌ Not implemented (different, older protocol) |
 
-Every driver is pinned by **byte-exact golden-packet tests** (219 tests, hardware-free,
-plus 5 `#[ignore]`d ones that need a real device), so the wire output is known-correct
-against captures.
+Drivers have **byte-exact golden-packet tests** against captures and additional
+hardware-free checks, but those tests alone do not establish chip compatibility.
 
 A green suite is not the same as a working operation, and this project has the
 scars to prove it: the write path passed every test while programming *nothing*,
@@ -60,8 +93,9 @@ Requires Rust 1.85+. The binary is pure Rust and MIT; the only C it links is
 your platform's own TLS library, used to download the chip database over HTTPS
 (Security.framework on macOS, SChannel on Windows, OpenSSL on Linux).
 `--no-default-features` drops that too, for a fully static MIT-only build
-without the automatic database. On macOS with a T76, **use a USB-2.0 cable** — the
-SuperSpeed bulk path fails on Apple Silicon and the tool will tell you so
+without the automatic database. On macOS with a T76, use a High Speed link;
+the supplied cable negotiated High Speed on the tested Mac. The SuperSpeed
+bulk path fails on Apple Silicon and the tool will tell you so
 ([details](docs/ch569-usb3-notes.md)).
 
 ### The chip database

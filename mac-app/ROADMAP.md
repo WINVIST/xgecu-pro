@@ -25,11 +25,10 @@ silently change programmer protocol behavior.
 - Check chip identity before any erase or protection change. Bound imported
   images and network responses, and pin the default vendor archive checksum.
 
-The source is complete, but this milestone is **not accepted** until the Xcode
-build and the hardware checks below pass on the target Mac.
-GitHub Actions also builds the app on a macOS 26 arm64 runner and runs the Rust
-workspace tests; this catches compiler regressions but does not replace the
-target-Mac and T76 acceptance steps.
+The macOS 26 arm64 CI build and core target-Mac T76 read flow have passed.
+The user confirmed direct supplied-cable operation, repeated reads of both
+priority chips, and a verified MX66 code-region program. Remaining chip
+families and destructive operations still need their own hardware checks.
 
 ## 2. Mac and T76 acceptance — requires the user's hardware
 
