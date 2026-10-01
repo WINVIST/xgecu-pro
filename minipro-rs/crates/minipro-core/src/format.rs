@@ -529,7 +529,10 @@ mod tests {
     #[test]
     fn non_ascii_srecord_is_an_error_not_a_panic() {
         assert_eq!(
-            Format::SRec.parse("Séé\n".as_bytes(), PAD).unwrap_err().code(),
+            Format::SRec
+                .parse("Séé\n".as_bytes(), PAD)
+                .unwrap_err()
+                .code(),
             "format"
         );
     }

@@ -135,7 +135,8 @@ impl Extractor {
                 }
                 return Err(Error::Format(format!(
                     "{} failed on {} (exit status {status})",
-                    self.program(), archive.display()
+                    self.program(),
+                    archive.display()
                 )));
             }
             let over_limit = match extracted_tree_exceeds_limit(dest) {

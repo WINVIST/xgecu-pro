@@ -3682,7 +3682,10 @@ mod prop_tests {
 
     #[test]
     fn update_parse_rejects_empty_firmware() {
-        assert!(matches!(UpdateFile::parse(&valid_update(0, 0)), Err(Error::Format(_))));
+        assert!(matches!(
+            UpdateFile::parse(&valid_update(0, 0)),
+            Err(Error::Format(_))
+        ));
     }
 }
 

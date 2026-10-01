@@ -281,8 +281,14 @@ mod tests {
     #[test]
     fn mirror_cache_is_bound_to_its_source() {
         let root = Path::new("cache");
-        assert_eq!(mirror_cache_dir(root, "https://a/"), mirror_cache_dir(root, "https://a"));
-        assert_ne!(mirror_cache_dir(root, "https://a"), mirror_cache_dir(root, "https://b"));
+        assert_eq!(
+            mirror_cache_dir(root, "https://a/"),
+            mirror_cache_dir(root, "https://a")
+        );
+        assert_ne!(
+            mirror_cache_dir(root, "https://a"),
+            mirror_cache_dir(root, "https://b")
+        );
     }
 
     #[test]
