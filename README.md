@@ -5,7 +5,8 @@
 [Download for Apple Silicon](https://github.com/WINVIST/xgecu-pro/releases) ·
 [Install guide](mac-app/README.md) ·
 [Hardware results](mac-app/HARDWARE-VALIDATION.md) ·
-[Roadmap](mac-app/ROADMAP.md)
+[Roadmap](mac-app/ROADMAP.md) ·
+[Security policy](SECURITY.md)
 
 The macOS app brings T76 connect, SOIC16 auto-detection, chip search, read,
 blank check, file comparison, programming with readback verification, and
