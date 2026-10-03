@@ -504,7 +504,8 @@ fn load_default_source(rep: &mut dyn Reporter) -> std::result::Result<Box<dyn Ch
         .as_deref()
         .filter(|u| !u.is_empty())
         .unwrap_or(vendor::DEFAULT_VENDOR_ARCHIVE);
-    if vendor::cached_archive(&cache).is_none() {
+    if !vendor::has_unpacked_database(&cache, url) && vendor::cached_archive(&cache, url).is_none()
+    {
         rep.event(&Event::Note(
             format!(
                 "fetching the chip database once from {url} (~63 MB, cached at {})",
@@ -712,9 +713,31 @@ fn run_read(
 /// to `code_size` with the chip's erased byte (`blank`, so read-back verify of
 /// the tail matches the real erased state), and reject one larger than the chip.
 fn load_image(file: &Path, format: Fmt, code_size: u64, blank: u8) -> Result<Image> {
-    let raw = std::fs::read(file)?;
-    let mut image = format.for_input(file, &raw).parse(&raw, blank)?;
-    let need = code_size as usize;
+    use std::io::Read as _;
+    let need = usize::try_from(code_size)
+        .map_err(|_| Error::Format("chip capacity is too large for this host".into()))?;
+    if need > minipro_core::format::MAX_IMAGE_BYTES {
+        return Err(Error::Format(
+            "chip capacity exceeds the supported image limit".into(),
+        ));
+    }
+    const MAX_INPUT_BYTES: u64 = 256 << 20;
+    let input = std::fs::File::open(file)?;
+    if input.metadata()?.len() > MAX_INPUT_BYTES {
+        return Err(Error::Format(
+            "image file exceeds the 256 MiB input limit".into(),
+        ));
+    }
+    let mut raw = Vec::new();
+    input.take(MAX_INPUT_BYTES + 1).read_to_end(&mut raw)?;
+    if raw.len() as u64 > MAX_INPUT_BYTES {
+        return Err(Error::Format(
+            "image file exceeds the 256 MiB input limit".into(),
+        ));
+    }
+    let mut image = format
+        .for_input(file, &raw)
+        .parse_with_limit(&raw, blank, need)?;
     match image.bytes.len().cmp(&need) {
         std::cmp::Ordering::Greater => Err(Error::Format(format!(
             "image is {} bytes but the chip holds {} — too large",

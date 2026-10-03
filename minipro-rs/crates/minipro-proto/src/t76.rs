@@ -1729,6 +1729,9 @@ impl<'a> UpdateFile<'a> {
         }
         let stored_crc = wire::read_le32(image, 4).map_err(|_| bad())?;
         let count = wire::read_le32(image, 12).map_err(|_| bad())? as usize;
+        if count == 0 {
+            return Err(Error::Format("updateT76.dat: no firmware blocks".into()));
+        }
         let body = image.get(UPDATE_HEADER_LEN..).ok_or_else(bad)?;
         if count.checked_mul(UPDATE_BLOCK_LEN) != Some(body.len()) {
             return Err(Error::Format(
@@ -3582,6 +3585,14 @@ mod prop_tests {
         img
     }
 
+    #[test]
+    fn update_parse_rejects_empty_firmware() {
+        assert!(matches!(
+            UpdateFile::parse(&valid_update(0, 0)),
+            Err(Error::Format(_))
+        ));
+    }
+
     proptest! {
         /// Arbitrary bytes must never panic the parser.
         #[test]
@@ -3591,7 +3602,7 @@ mod prop_tests {
 
         /// A well-formed image parses and yields exactly its declared blocks.
         #[test]
-        fn update_parse_accepts_valid(blocks in 0usize..6, fill in any::<u8>()) {
+        fn update_parse_accepts_valid(blocks in 1usize..6, fill in any::<u8>()) {
             let img = valid_update(blocks, fill);
             let update = UpdateFile::parse(&img).expect("valid image");
             prop_assert_eq!(update.blocks().count(), blocks);

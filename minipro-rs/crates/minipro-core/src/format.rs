@@ -18,6 +18,7 @@ use crate::error::{Error, Result};
 
 /// Fill byte for gaps and short images: 0xFF, the erased state of EPROM/flash.
 pub const PAD: u8 = 0xFF;
+pub const MAX_IMAGE_BYTES: usize = 256 << 20;
 
 /// A supported image file format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,8 +49,8 @@ impl Format {
         }
     }
 
-    /// Sniff the content: first non-whitespace byte `:`→IHex, `S`→SRec, else
-    /// Raw. Lets a mislabeled `.bin` that is really hex/srec still parse.
+    /// Sniff a plausible first record, so a binary image beginning with ASCII
+    /// `S` or `:` is not mistaken for a text format.
     ///
     /// ```
     /// use minipro_core::format::Format;
@@ -58,10 +59,26 @@ impl Format {
     /// assert_eq!(Format::detect(&[0xde, 0xad]), Format::Raw);
     /// ```
     pub fn detect(bytes: &[u8]) -> Format {
-        match bytes.iter().find(|b| !b.is_ascii_whitespace()) {
-            Some(b':') => Format::IHex,
-            Some(b'S') => Format::SRec,
-            _ => Format::Raw,
+        let first = bytes
+            .split(|&b| b == b'\n')
+            .find(|line| line.iter().any(|b| !b.is_ascii_whitespace()))
+            .unwrap_or_default();
+        let line = first.trim_ascii();
+        if line.len() >= 11
+            && line[0] == b':'
+            && line[1..].len() % 2 == 0
+            && line[1..].iter().all(u8::is_ascii_hexdigit)
+        {
+            Format::IHex
+        } else if line.len() >= 10
+            && line[0] == b'S'
+            && line[1].is_ascii_digit()
+            && line[2..].len() % 2 == 0
+            && line[2..].iter().all(u8::is_ascii_hexdigit)
+        {
+            Format::SRec
+        } else {
+            Format::Raw
         }
     }
 
@@ -77,12 +94,19 @@ impl Format {
     /// assert_eq!(back.bytes, img.bytes);
     /// ```
     pub fn parse(self, bytes: &[u8], pad: u8) -> Result<Image> {
+        self.parse_with_limit(bytes, pad, MAX_IMAGE_BYTES)
+    }
+
+    /// Parse without allowing a sparse addressed record to allocate beyond
+    /// the selected chip's capacity.
+    pub fn parse_with_limit(self, bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
         match self {
-            Format::Raw => Ok(Image {
+            Format::Raw if bytes.len() <= max_len => Ok(Image {
                 bytes: bytes.to_vec(),
             }),
-            Format::IHex => parse_ihex(bytes, pad),
-            Format::SRec => parse_srec(bytes, pad),
+            Format::Raw => Err(Error::Format("image exceeds selected chip capacity".into())),
+            Format::IHex => parse_ihex(bytes, pad, max_len),
+            Format::SRec => parse_srec(bytes, pad, max_len),
         }
     }
 
@@ -115,19 +139,32 @@ fn decode_hex(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Build a flat image from `(address, data)` records: sized to the highest end
-/// address, `pad`-filled, with each record written at its address.
-fn assemble(records: &[(u32, Vec<u8>)], pad: u8) -> Image {
-    let end = records
-        .iter()
-        .map(|(a, d)| *a as usize + d.len())
-        .max()
-        .unwrap_or(0);
-    let mut out = vec![pad; end];
-    for (a, d) in records {
-        out[*a as usize..*a as usize + d.len()].copy_from_slice(d);
+/// Apply a checked record immediately, without retaining every input record.
+/// Empty data records carry no image bytes, even if their address is high.
+fn apply_record(
+    out: &mut Vec<u8>,
+    address: u32,
+    data: &[u8],
+    pad: u8,
+    max_len: usize,
+) -> Result<()> {
+    if data.is_empty() {
+        return Ok(());
     }
-    Image { bytes: out }
+    let start = address as usize;
+    let end = start
+        .checked_add(data.len())
+        .ok_or_else(|| Error::Format("record address overflow".into()))?;
+    if end > max_len {
+        return Err(Error::Format(
+            "image address exceeds selected chip capacity".into(),
+        ));
+    }
+    if out.len() < end {
+        out.resize(end, pad);
+    }
+    out[start..end].copy_from_slice(data);
+    Ok(())
 }
 
 fn hex_byte(out: &mut String, b: u8) {
@@ -138,11 +175,11 @@ fn hex_byte(out: &mut String, b: u8) {
 
 // ---- Intel HEX -------------------------------------------------------------
 
-fn parse_ihex(bytes: &[u8], pad: u8) -> Result<Image> {
+fn parse_ihex(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Error::Format("Intel HEX is not valid ASCII".into()))?;
     let mut base: u32 = 0;
-    let mut records: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut image = Vec::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
@@ -171,11 +208,21 @@ fn parse_ihex(bytes: &[u8], pad: u8) -> Result<Image> {
         let addr = u16::from_be_bytes([rec[1], rec[2]]) as u32;
         let data = &rec[4..4 + len];
         match rec[3] {
-            0x00 => records.push((base + addr, data.to_vec())),
-            0x01 => break,                                                       // EOF
-            0x02 => base = (u16::from_be_bytes([data[0], data[1]]) as u32) << 4, // segment
-            0x04 => base = (u16::from_be_bytes([data[0], data[1]]) as u32) << 16, // linear
-            0x03 | 0x05 => {} // start-address records — no image data
+            0x00 => {
+                let absolute = base.checked_add(addr).ok_or_else(|| {
+                    Error::Format(format!("Intel HEX line {n}: address overflow"))
+                })?;
+                apply_record(&mut image, absolute, data, pad, max_len)?;
+            }
+            0x01 if len == 0 => break,
+            0x02 if len == 2 => base = (u16::from_be_bytes([data[0], data[1]]) as u32) << 4,
+            0x04 if len == 2 => base = (u16::from_be_bytes([data[0], data[1]]) as u32) << 16,
+            0x03 | 0x05 if len == 4 => {} // start-address records
+            0x01..=0x05 => {
+                return Err(Error::Format(format!(
+                    "Intel HEX line {n}: wrong record length"
+                )))
+            }
             t => {
                 return Err(Error::Format(format!(
                     "Intel HEX line {n}: unknown record type {t:#x}"
@@ -183,7 +230,7 @@ fn parse_ihex(bytes: &[u8], pad: u8) -> Result<Image> {
             }
         }
     }
-    Ok(assemble(&records, pad))
+    Ok(Image { bytes: image })
 }
 
 /// Write one Intel HEX record body `[len, addr_hi, addr_lo, type, data…]` with
@@ -225,10 +272,10 @@ fn emit_ihex(data: &[u8]) -> Vec<u8> {
 
 // ---- Motorola S-record -----------------------------------------------------
 
-fn parse_srec(bytes: &[u8], pad: u8) -> Result<Image> {
+fn parse_srec(bytes: &[u8], pad: u8, max_len: usize) -> Result<Image> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| Error::Format("S-record is not valid ASCII".into()))?;
-    let mut records: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut image = Vec::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
@@ -236,7 +283,7 @@ fn parse_srec(bytes: &[u8], pad: u8) -> Result<Image> {
         }
         let n = i + 1;
         let bytes = line.as_bytes();
-        if bytes[0] != b'S' || line.len() < 4 {
+        if bytes[0] != b'S' || line.len() < 4 || !line.is_ascii() {
             return Err(Error::Format(format!("S-record line {n}: not an S-record")));
         }
         let rec = decode_hex(&line[2..])
@@ -270,12 +317,23 @@ fn parse_srec(bytes: &[u8], pad: u8) -> Result<Image> {
                 )))
             }
         };
+        if count < addr_len + 1 {
+            return Err(Error::Format(format!(
+                "S-record line {n}: record too short"
+            )));
+        }
         let addr = rec[1..1 + addr_len]
             .iter()
             .fold(0u32, |a, &b| (a << 8) | b as u32);
-        records.push((addr, rec[1 + addr_len..rec.len() - 1].to_vec()));
+        apply_record(
+            &mut image,
+            addr,
+            &rec[1 + addr_len..rec.len() - 1],
+            pad,
+            max_len,
+        )?;
     }
-    Ok(assemble(&records, pad))
+    Ok(Image { bytes: image })
 }
 
 /// Write one S-record of `kind` (`b'1'`, `b'9'`, …): `S<kind><count><addr><data><cksum>`.
@@ -331,9 +389,54 @@ mod tests {
         assert_eq!(Format::from_path(Path::new("d.s19")), Format::SRec);
         assert_eq!(Format::from_path(Path::new("d.bin")), Format::Raw);
         assert_eq!(Format::from_path(Path::new("d")), Format::Raw);
-        assert_eq!(Format::detect(b"\n  :10..."), Format::IHex);
-        assert_eq!(Format::detect(b"S00600004844..."), Format::SRec);
+        assert_eq!(Format::detect(b"\n  :00000001FF\n"), Format::IHex);
+        assert_eq!(Format::detect(b"S9030000FC\n"), Format::SRec);
+        assert_eq!(Format::detect(b"Sample binary image"), Format::Raw);
+        assert_eq!(Format::detect(b":not a record"), Format::Raw);
         assert_eq!(Format::detect(&[0x00, 0x01, 0x02]), Format::Raw);
+    }
+
+    #[test]
+    fn malformed_text_images_do_not_panic_or_exceed_limit() {
+        let source = img(&[0x12, 0x34, 0x56, 0x78]);
+        for format in [Format::IHex, Format::SRec] {
+            let valid = format.emit(&source);
+            for position in 0..valid.len() {
+                for replacement in [0, b'F', b':', b'\n', 0xff] {
+                    let mut mutated = valid.clone();
+                    mutated[position] = replacement;
+                    if let Ok(image) = format.parse_with_limit(&mutated, PAD, 64) {
+                        assert!(image.bytes.len() <= 64);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn records_are_applied_with_an_immediate_capacity_check() {
+        let mut bytes = Vec::new();
+        apply_record(&mut bytes, u32::MAX, &[], PAD, 8).unwrap();
+        assert!(bytes.is_empty());
+        apply_record(&mut bytes, 4, &[0x12, 0x34], PAD, 8).unwrap();
+        assert_eq!(bytes, [PAD, PAD, PAD, PAD, 0x12, 0x34]);
+        apply_record(&mut bytes, 5, &[0x56], PAD, 8).unwrap();
+        assert_eq!(bytes[5], 0x56);
+        assert!(apply_record(&mut bytes, 8, &[0x99], PAD, 8).is_err());
+        assert_eq!(bytes.len(), 6);
+
+        let empty_records = b":0000000000\n".repeat(10_000);
+        assert!(Format::IHex
+            .parse_with_limit(&empty_records, PAD, 8)
+            .unwrap()
+            .bytes
+            .is_empty());
+        let empty_srecords = b"S1030000FC\n".repeat(10_000);
+        assert!(Format::SRec
+            .parse_with_limit(&empty_srecords, PAD, 8)
+            .unwrap()
+            .bytes
+            .is_empty());
     }
 
     #[test]
@@ -406,5 +509,43 @@ mod tests {
         let hex = ":01000000AA55\n:0100040".to_string() + "0BB40\n:00000001FF\n";
         let image = Format::IHex.parse(hex.as_bytes(), PAD).unwrap();
         assert_eq!(image.bytes, vec![0xAA, PAD, PAD, PAD, 0xBB]);
+    }
+
+    #[test]
+    fn malformed_short_records_are_errors() {
+        assert_eq!(
+            Format::IHex
+                .parse(b":00000002FE\n", PAD)
+                .unwrap_err()
+                .code(),
+            "format"
+        );
+        assert_eq!(
+            Format::SRec.parse(b"S101FE\n", PAD).unwrap_err().code(),
+            "format"
+        );
+    }
+
+    #[test]
+    fn non_ascii_srecord_is_an_error_not_a_panic() {
+        assert_eq!(
+            Format::SRec
+                .parse("Séé\n".as_bytes(), PAD)
+                .unwrap_err()
+                .code(),
+            "format"
+        );
+    }
+
+    #[test]
+    fn sparse_address_cannot_grow_image_past_limit() {
+        let sparse = b":02000004FFFFFC\n:01000000AA55\n";
+        assert_eq!(
+            Format::IHex
+                .parse_with_limit(sparse, PAD, 65536)
+                .unwrap_err()
+                .code(),
+            "format"
+        );
     }
 }

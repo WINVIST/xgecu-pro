@@ -41,6 +41,13 @@ const META_FILE: &str = "source.meta"; // "<version-tag>\n<utc-day>\n"
 /// wrong FPGA bitstream for a chip.
 const MIRROR_DIR: &str = "mirror";
 
+fn mirror_cache_dir(root: &Path, base_url: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(base_url.trim_end_matches('/').as_bytes());
+    let key: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    root.join(MIRROR_DIR).join(key)
+}
+
 /// A [`DllDb`] provisioned from a mirror, cached as the vendor files
 /// themselves; a once-a-day version check keeps only the latest on disk.
 pub struct HttpDb {
@@ -52,7 +59,7 @@ pub struct HttpDb {
 impl HttpDb {
     pub fn open(base_url: &str, cache_dir: &Path, dll_sha256: Option<&str>) -> Result<Self> {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let dir = cache_dir.join(MIRROR_DIR);
+        let dir = mirror_cache_dir(cache_dir, &base_url);
         std::fs::create_dir_all(dir.join("algoT76"))?;
         let dll_path = dir.join("InfoICT76.dll");
         let dll_url = format!("{base_url}/InfoICT76.dll");
@@ -80,7 +87,7 @@ impl HttpDb {
         };
 
         if rebuild {
-            let dll = http_get(&dll_url)?;
+            let dll = http_get(&dll_url, 32 << 20)?;
             if let Some(want) = dll_sha256 {
                 verify_sha256(&dll, want)?;
             }
@@ -95,6 +102,10 @@ impl HttpDb {
                 .or_else(|| head_version(&dll_url).ok())
                 .unwrap_or_default();
             write_meta(&dir, &tag, today);
+        }
+
+        if let Some(want) = dll_sha256 {
+            verify_sha256(&std::fs::read(&dll_path)?, want)?;
         }
 
         Ok(HttpDb {
@@ -129,7 +140,7 @@ impl ChipDb for HttpDb {
         let name = name.to_string();
         let local = self.cache_dir.join("algoT76").join(format!("{name}.alg"));
         if local.is_file() {
-            let bytes = std::fs::read(&local)?;
+            let bytes = read_alg_file(&local)?;
             return Ok(Some(Algorithm {
                 name,
                 bitstream: decode_alg(&bytes)?,
@@ -138,7 +149,7 @@ impl ChipDb for HttpDb {
         // Utility bitstreams (TestLgcPull, TTL1, …) live in the same algoT76/
         // as chip bitstreams — fetched by name, cached the same way.
         for remote in [format!("{name}.alg"), format!("T7_{name}.alg")] {
-            if let Ok(bytes) = http_get(&format!("{}/algoT76/{remote}", self.base_url)) {
+            if let Ok(bytes) = http_get(&format!("{}/algoT76/{remote}", self.base_url), 8 << 20) {
                 let tmp = local.with_extension("alg.part");
                 std::fs::write(&tmp, &bytes)?;
                 std::fs::rename(&tmp, &local)?;
@@ -220,13 +231,20 @@ fn agent() -> &'static ureq::Agent {
     })
 }
 
-pub(crate) fn http_get(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn http_get(url: &str, max_bytes: u64) -> Result<Vec<u8>> {
     let resp = agent()
         .get(url)
         .call()
         .map_err(|e| Error::Format(format!("HTTP GET {url}: {e}")))?;
     let mut buf = Vec::new();
-    resp.into_reader().read_to_end(&mut buf)?;
+    resp.into_reader()
+        .take(max_bytes + 1)
+        .read_to_end(&mut buf)?;
+    if buf.len() as u64 > max_bytes {
+        return Err(Error::Format(format!(
+            "HTTP GET {url}: response exceeds {max_bytes} bytes"
+        )));
+    }
     Ok(buf)
 }
 
@@ -245,6 +263,18 @@ fn verify_sha256(bytes: &[u8], want: &str) -> Result<()> {
     }
 }
 
+fn read_alg_file(path: &Path) -> Result<Vec<u8>> {
+    const MAX_BYTES: u64 = 8 << 20;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(Error::Format("cached algorithm exceeds 8 MiB".into()));
+    }
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +288,34 @@ mod tests {
             verify_sha256(b"tampered", empty).unwrap_err().code(),
             "format"
         );
+    }
+
+    #[test]
+    fn mirror_cache_is_bound_to_its_source() {
+        let root = Path::new("cache");
+        assert_eq!(
+            mirror_cache_dir(root, "https://a/"),
+            mirror_cache_dir(root, "https://a")
+        );
+        assert_ne!(
+            mirror_cache_dir(root, "https://a"),
+            mirror_cache_dir(root, "https://b")
+        );
+    }
+
+    #[test]
+    fn cached_mirror_dll_still_checks_requested_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let url = "https://example.invalid/mirror";
+        let dir = mirror_cache_dir(root.path(), url);
+        std::fs::create_dir_all(dir.join("algoT76")).unwrap();
+        std::fs::write(dir.join("InfoICT76.dll"), b"wrong source").unwrap();
+        write_meta(&dir, "cached", utc_day());
+        let empty_digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert!(matches!(
+            HttpDb::open(url, root.path(), Some(empty_digest)),
+            Err(Error::Format(_))
+        ));
     }
 
     #[test]
