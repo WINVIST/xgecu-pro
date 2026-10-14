@@ -14,6 +14,7 @@ struct CaptureUIPreviews {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
+        app.finishLaunching()
         let states: [(String, Bool, Int, NSSize)] = [
             ("01-start", false, 0, NSSize(width: 1180, height: 820)),
             ("02-ready", false, 0, NSSize(width: 1180, height: 820)),
@@ -38,18 +39,23 @@ struct CaptureUIPreviews {
             window.center()
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
-            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            RunLoop.main.run(until: Date().addingTimeInterval(2))
             host.layoutSubtreeIfNeeded()
             host.displayIfNeeded()
-            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-                fatalError("Could not allocate the native view capture for \(name)")
+            // NSView.cacheDisplay misses SwiftUI's composited drawing layers.
+            // Capture our own window through WindowServer instead.
+            let file = output.appendingPathComponent(name + ".png")
+            let capture = Process()
+            capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            capture.arguments = ["-x", "-o", "-l", String(window.windowNumber), file.path]
+            try capture.run()
+            capture.waitUntilExit()
+            guard capture.terminationStatus == 0,
+                  let image = NSBitmapImageRep(contentsOf: file),
+                  let png = try? Data(contentsOf: file), png.count > 10_000 else {
+                fatalError("WindowServer capture failed or is empty: \(name)")
             }
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            guard let png = bitmap.representation(using: .png, properties: [:]), png.count > 10_000 else {
-                fatalError("Native UI capture is empty: \(name)")
-            }
-            try png.write(to: output.appendingPathComponent(name + ".png"))
-            print("Captured \(name): \(bitmap.pixelsWide) x \(bitmap.pixelsHigh), \(png.count) bytes")
+            print("Captured \(name): \(image.pixelsWide) x \(image.pixelsHigh), \(png.count) bytes")
             window.close()
         }
     }
