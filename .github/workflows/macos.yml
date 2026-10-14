@@ -98,6 +98,10 @@ jobs:
           app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
           personal="$RUNNER_TEMP/XGecuPro-Offline.app"
           test ! -e "$app/Contents/Resources/ChipDatabase"
+          bash mac-app/scripts/make-personal-offline-app.sh "$app" "$personal"
+          test -f "$personal/Contents/Resources/ChipDatabase/InfoICT76.dll"
+          codesign --verify --deep --strict --verbose=2 "$personal"
+          test ! -e "$app/Contents/Resources/ChipDatabase"
 
       - name: Check complete catalog browsing without hardware
         run: |
@@ -108,10 +112,6 @@ jobs:
           "$helper" --json search "" --limit "$total" > "$RUNNER_TEMP/catalog.json"
           jq -e '.ok == true and .more == false and .n == (.hits | length) and (.hits | index("MX25L51245G@SOIC16") != null)' "$RUNNER_TEMP/catalog.json"
           printf 'Complete catalog: %s entries\n' "$total"
-          bash mac-app/scripts/make-personal-offline-app.sh "$app" "$personal"
-          test -f "$personal/Contents/Resources/ChipDatabase/InfoICT76.dll"
-          codesign --verify --deep --strict --verbose=2 "$personal"
-          test ! -e "$app/Contents/Resources/ChipDatabase"
 
       - name: Check 256 MiB image conversion
         run: |
