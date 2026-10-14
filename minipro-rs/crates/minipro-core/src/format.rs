@@ -19,6 +19,10 @@ use crate::error::{Error, Result};
 /// Fill byte for gaps and short images: 0xFF, the erased state of EPROM/flash.
 pub const PAD: u8 = 0xFF;
 pub const MAX_IMAGE_BYTES: usize = 256 << 20;
+/// Disk-backed image capacity; bounded separately from in-memory images.
+pub const MAX_STREAMED_IMAGE_BYTES: u64 = 2 << 30;
+
+mod stream;
 
 /// A supported image file format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
