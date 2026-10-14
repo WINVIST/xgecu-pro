@@ -124,10 +124,16 @@ private struct ChipSidebar: View {
             .overlay {
                 if model.hits.isEmpty {
                     VStack(spacing: 8) {
-                        Image(systemName: "cpu").font(.title2).foregroundStyle(.secondary)
-                        Text(model.hasSearched ? "No matching chips" : "Find your chip").font(.callout.weight(.medium))
-                        Text(model.hasSearched ? "Try a shorter part number or check the marking." : "Search by part number or use SOIC16 auto detection.")
-                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        if model.busy {
+                            ProgressView().controlSize(.small)
+                            Text(model.currentStage ?? "Preparing chip lookup…")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Image(systemName: "cpu").font(.title2).foregroundStyle(.secondary)
+                            Text(model.hasSearched ? "No matching chips" : "Find your chip").font(.callout.weight(.medium))
+                            Text(model.hasSearched ? "Try a shorter part number or check the marking." : "Search by part number or use SOIC16 auto detection.")
+                                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }
                     }
                     .padding(20).allowsHitTesting(false)
                 }
@@ -162,6 +168,7 @@ private struct ProgrammingWorkspace: View {
     @State private var showOtherOperations = false
 
     private var readiness: String {
+        if model.busy { return model.currentStage ?? "Operation in progress…" }
         if !model.isT76 { return "Connect the T76 to enable programming." }
         if model.selectedChip.isEmpty { return "Select the exact chip in the sidebar." }
         if model.chipDetails == nil { return "Wait for the chip details to load." }
@@ -360,7 +367,7 @@ private struct HexWorkspace: View {
                 }
                 .padding(4)
             }
-            .frame(maxHeight: showEditing ? 300 : (showMetadata ? 230 : 150))
+            .frame(maxHeight: showEditing ? 380 : (showMetadata ? 310 : 230))
             Divider()
             if model.bufferSize == 0 {
                 ContentUnavailableView {
@@ -377,6 +384,7 @@ private struct HexWorkspace: View {
                         .fixedSize(horizontal: true, vertical: false)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12).textSelection(.enabled)
                 }
+                .defaultScrollAnchor(.topLeading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityLabel("Hexadecimal and ASCII buffer contents")
             }
@@ -443,6 +451,7 @@ private struct ActivityWorkspace: View {
                 Text(model.log.joined(separator: "\n")).font(.system(.callout, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12).textSelection(.enabled)
             }
+            .defaultScrollAnchor(.topLeading)
         }
     }
 }

@@ -22,6 +22,7 @@ struct CaptureUIPreviews {
             ("04-error-compact", false, 0, NSSize(width: 1020, height: 680)),
             ("05-ready-dark-compact", true, 0, NSSize(width: 1020, height: 680)),
             ("06-hex-editor", false, 1, NSSize(width: 1180, height: 820)),
+            ("07-chip-lookup", false, 0, NSSize(width: 1020, height: 680)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
@@ -78,7 +79,16 @@ struct CaptureUIPreviews {
         model.programmingFile = URL(fileURLWithPath: "/Users/example/Firmware/router-firmware.bin")
         model.programmingFileBytes = 67_108_864
         model.status = "Firmware selected: router-firmware.bin."
-        if name == "03-programming" {
+        if name == "07-chip-lookup" {
+            model.hits = []
+            model.selectedChip = ""
+            model.chipDetails = nil
+            model.programmingFile = nil
+            model.programmingFileBytes = nil
+            model.busy = true
+            model.currentStage = "Loading chip database"
+            model.status = "Running: search…"
+        } else if name == "03-programming" {
             model.busy = true
             model.currentStage = "Readback verification"
             model.progress = 0.64
