@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     }
     @Published var query = ""
     @Published var hits: [String] = []
+    @Published var hasSearched = false
     @Published var selectedChip = ""
     @Published var chipDetails: ChipDetails?
     @Published var deviceStatus = "Programmer not checked"
@@ -24,6 +25,8 @@ final class AppModel: ObservableObject {
     @Published var log: [String] = []
     @Published var hexPreview = ""
     @Published var lastFile: URL?
+    @Published var programmingFile: URL?
+    @Published var programmingFileBytes: Int?
     @Published var bufferChip: String?
     @Published var isT76 = false
     @Published var bufferSize = 0
@@ -105,6 +108,7 @@ final class AppModel: ObservableObject {
         guard !text.isEmpty else { return }
         perform(["search", text, "--limit", "100"]) { [weak self] result in
             self?.hits = result["hits"] as? [String] ?? []
+            self?.hasSearched = true
             self?.status = "Results: \(result["n"] as? Int ?? 0)."
         }
     }
@@ -129,6 +133,7 @@ final class AppModel: ObservableObject {
             let candidates = result["matches"] as? [String] ?? []
             let total = result["n"] as? Int ?? candidates.count
             self.hits = candidates
+            self.hasSearched = true
             if candidates.isEmpty {
                 self.status = "Detected JEDEC ID 0x\(id.uppercased()). No SOIC16 database entry matches it. Check the chip and adapter placement."
             } else if candidates.count == 1 {
@@ -237,12 +242,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func writeChip() {
-        guard readyForMutation else { return }
+    func chooseProgrammingFile() {
+        guard !busy else { return }
         let panel = NSOpenPanel()
+        panel.title = "Choose Firmware"
+        panel.message = "Choose the file to program into the chip. HEX editor changes must be saved to a file first."
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        programmingFile = url
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        programmingFileBytes = (attributes?[.size] as? NSNumber)?.intValue
+        status = "Firmware selected: \(url.lastPathComponent). Select the exact chip, then choose Program and Verify."
+    }
+
+    func writeChip() {
+        guard readyForMutation, let url = programmingFile else { return }
 
         let chip = selectedChip
         let selectedDatabase = databasePath
@@ -267,10 +282,11 @@ final class AppModel: ObservableObject {
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = "Program \(chip)?"
-            alert.informativeText = "Preflight passed. This will change the chip contents; erasable chips are erased before programming. Short images are padded to the chip capacity with the erased byte. Save the original dump first."
-            alert.addButton(withTitle: "Program and Verify")
+            alert.informativeText = "Firmware: \(url.lastPathComponent)\n\nPreflight passed. This will change the chip contents; erasable chips are erased before programming. Short images are padded to the chip capacity with the erased byte. Save the original dump first."
             alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            alert.addButton(withTitle: "Program and Verify")
+            alert.buttons[1].keyEquivalent = ""
+            guard alert.runModal() == .alertSecondButtonReturn else { return }
             committed = true
             self.perform(["write", chip, snapshot.file.path], databasePath: selectedDatabase,
                          cleanup: { try? FileManager.default.removeItem(at: snapshot.directory) }) { [weak self] _ in
@@ -289,9 +305,10 @@ final class AppModel: ObservableObject {
         alert.alertStyle = .critical
         alert.messageText = "Erase \(selectedChip)?"
         alert.informativeText = "All data on the chip will be erased. Save a dump first."
-        alert.addButton(withTitle: "Erase")
         alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        alert.addButton(withTitle: "Erase")
+        alert.buttons[1].keyEquivalent = ""
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
         perform(["erase", selectedChip]) { [weak self] _ in
             self?.status = "Erase completed."
         }
@@ -304,6 +321,7 @@ final class AppModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         databasePath = url.path
         hits = []
+        hasSearched = false
         selectedChip = ""
         chipDetails = nil
         status = "Local database selected: \(url.lastPathComponent)."
@@ -313,6 +331,7 @@ final class AppModel: ObservableObject {
         guard !busy else { return }
         databasePath = ""
         hits = []
+        hasSearched = false
         selectedChip = ""
         chipDetails = nil
         status = MiniProRunner.bundledDatabasePath == nil

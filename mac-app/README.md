@@ -143,8 +143,15 @@ otherwise choose the entry matching the printed chip marking. A shared JEDEC
 ID is not proof of an exact model. Confirm the marking and adapter placement
 before any operation.
 Alternatively, search for the
-chip name and select its exact `@SOIC16` entry. Then use **Read…**. The separate
-**Detect ID** action rechecks the selected chip's ID. **Blank Check** compares
+chip name and select its exact `@SOIC16` entry. The **Program** tab follows
+three steps: **Chip**, **Firmware**, and **Program and verify**. Click
+**Choose Firmware…**, check the displayed file name and path, then click
+**Program and Verify…**. Preflight runs before the final confirmation; the
+confirmation identifies both the chip and firmware file. Cancel is the
+default confirmation choice, so Return does not commit programming or erase.
+Use **Read, compare or erase the chip** for the secondary operations,
+including **Read and Save…**. The separate
+**Check ID** action rechecks the selected chip's ID. **Blank Check** compares
 the entire code region with the
 chip's erased value. Selecting a chip also shows its database package, pin
 count, memory region sizes, page size, expected electronic ID, and erased value
@@ -165,8 +172,13 @@ raw file with a second-pass stability check. Their dumps are not opened in
 the hex buffer. **Save As…**
 chooses raw, Intel HEX, or S-record output from the file extension. Save
 edited buffers with **Save As…** before choosing a file to program; the
-**Program…** action programs the file selected in its dialog, not unsaved buffer
-changes. The app shows the buffer's SHA-256 digest and compares it byte for byte
+**Program and Verify…** action programs the file displayed in the Firmware
+step, not unsaved buffer changes. **Command-O** chooses firmware;
+**Command-Shift-O** opens a file in the hex editor, **Command-Shift-S** saves
+the buffer, and **Command-R** refreshes the programmer connection.
+The **Hex Editor** tab keeps source/checksum information and editing tools in
+disclosure sections; search switches between HEX and ASCII. The app shows
+the buffer's SHA-256 digest and compares it byte for byte
 with another local file, reporting the first differing address or a size
 difference. You can edit an individual byte or fill a range, then undo and redo
 edits. Search accepts printable ASCII text as well as HEX bytes. Block addresses
@@ -185,9 +197,9 @@ unsupported chip family or algorithm. These controls are **not** a claim that
 every database part has been tested on hardware. Write first runs `--dry-run`,
 then asks for confirmation and uses the backend's read-back verification.
 The operation area displays the current stage beside its spinner or progress
-bar. The **Log** tab records timed stage changes, progress at 10% milestones,
+bar in a persistent status area beneath all three tabs. The **Activity** tab records timed stage changes, progress at 10% milestones,
 warnings, and the final result. A successful Program does not replace the Hex
-buffer with a fresh chip read; use **Read…** to save and inspect a new dump.
+buffer with a fresh chip read; use **Read and Save…** to save and inspect a new dump.
 Short programming images are padded to chip capacity with the part's erased
 byte, as stated in the confirmation dialog.
 The backend checks the chip ID before erase or protect changes; the GUI also
@@ -213,7 +225,7 @@ have not yet been validated on the target Mac. The Hex panel labels the buffer
 source and warns if it was read from a chip other than the selected one;
 selecting another chip does not replace the buffer.
 Preserve two matching original dumps before attempting any destructive operation.
-For MX66L1G45G, **Read…** saves the 128 MiB code region; its separate 512-byte
+For MX66L1G45G, **Read and Save…** saves the 128 MiB code region; its separate 512-byte
 data region is outside the current GUI read workflow.
 See the [hardware acceptance plan](ROADMAP.md#user-requested-hardware-support).
 

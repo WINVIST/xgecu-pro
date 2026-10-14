@@ -6,6 +6,29 @@ source build remains available. Keep the existing Rust CLI as the hardware
 backend and preserve its JSON interface so the GUI cannot
 silently change programmer protocol behavior.
 
+## Current priority — usability before more features (2026-10-15)
+
+The primary user workflow is: seat a chip, select its exact database entry,
+choose a firmware binary, and program it with readback verification.
+
+- First iteration: a dedicated Program workspace with explicit Chip,
+  Firmware, and Program and Verify steps; selected file name and path;
+  readiness guidance and a persistent operation status area.
+- Keep chip reading, file comparison, blank check, and erase available as
+  secondary tools. Put hex editing and operation history in their own tabs.
+- Keep preflight, chip-ID checks, private image snapshots, confirmation,
+  and backend readback verification. Programming uses the chosen file;
+  unsaved hex-buffer edits must be saved first.
+- Build and test on the existing GitHub macOS runner, capture native SwiftUI
+  display fixtures in light/dark and compact windows, and provide a branch
+  app artifact for target-Mac review. Fixture screenshots are not hardware
+  acceptance or a complete accessibility test.
+- After this workflow is reviewed on the target Mac, continue with the
+  full catalog and favorites, then file-backed buffers and streaming.
+
+See [the usability iteration](UX-ITERATION.md) for the design rationale and
+target-Mac review checklist.
+
 ## 1. First usable build — implemented in source
 
 - Create the fork and track upstream separately.
