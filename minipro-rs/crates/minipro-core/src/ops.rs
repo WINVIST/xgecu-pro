@@ -136,7 +136,7 @@ pub struct VerifiedRead {
 /// Upper bound for streamed raw reads. Covers the largest code region in the
 /// pinned T76 V13.21 catalog (1,140,850,688 bytes) with room for updates.
 /// In-memory image parsing keeps its separate 256 MiB limit.
-pub const MAX_STREAMED_REGION_BYTES: u64 = 2 << 30;
+pub const MAX_STREAMED_REGION_BYTES: u64 = crate::format::MAX_STREAMED_IMAGE_BYTES;
 
 /// Verification metadata for a raw dump written without retaining the image.
 #[derive(Debug)]

@@ -12,7 +12,7 @@
 mod reporters;
 mod tui;
 
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -1406,8 +1406,40 @@ fn run_describe(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-const GUI_IMAGE_LIMIT: usize = minipro_core::format::MAX_IMAGE_BYTES;
-const CONVERT_INPUT_LIMIT: u64 = 256 << 20;
+const CONVERT_INPUT_LIMIT: u64 = minipro_core::format::MAX_STREAMED_IMAGE_BYTES * 4;
+
+struct PreparedImage {
+    spool: tempfile::NamedTempFile,
+    bytes: u64,
+}
+
+/// Decode into a private seekable file before any programmer is opened.
+fn prepare_image_file(
+    input: &Path,
+    format: Fmt,
+    capacity: u64,
+    blank: u8,
+) -> Result<PreparedImage> {
+    let file = std::fs::File::open(input)?;
+    if file.metadata()?.len() > CONVERT_INPUT_LIMIT {
+        return Err(Error::Format(
+            "image file exceeds the text input limit".into(),
+        ));
+    }
+    let mut source = BufReader::new(file);
+    let format = match format {
+        Fmt::Auto => match Format::from_path(input) {
+            Format::Raw => Format::detect_from(&mut source)?,
+            known => known,
+        },
+        Fmt::Raw => Format::Raw,
+        Fmt::Ihex => Format::IHex,
+        Fmt::Srec => Format::SRec,
+    };
+    let mut spool = tempfile::NamedTempFile::new()?;
+    let bytes = format.decode_to(&mut source, spool.as_file_mut(), blank, capacity)?;
+    Ok(PreparedImage { spool, bytes })
+}
 
 /// Keep the prior dump intact if writing the replacement fails or the process
 /// stops before it is complete. A same-directory temporary file also prevents
@@ -1430,31 +1462,33 @@ fn convert_image(
     output: &Path,
     output_format: Fmt,
 ) -> Result<usize> {
-    let file = std::fs::File::open(input)?;
-    if file.metadata()?.len() > CONVERT_INPUT_LIMIT {
-        return Err(Error::Format(
-            "image file exceeds the 256 MiB input limit".into(),
-        ));
-    }
-    let mut source = Vec::new();
-    file.take(CONVERT_INPUT_LIMIT + 1)
-        .read_to_end(&mut source)?;
-    if source.len() as u64 > CONVERT_INPUT_LIMIT {
-        return Err(Error::Format(
-            "image file exceeds the 256 MiB input limit".into(),
-        ));
-    }
-    let image = input_format.for_input(input, &source).parse_with_limit(
-        &source,
+    let mut image = prepare_image_file(
+        input,
+        input_format,
+        minipro_core::format::MAX_STREAMED_IMAGE_BYTES,
         minipro_core::format::PAD,
-        GUI_IMAGE_LIMIT,
     )?;
-    if image.bytes.is_empty() {
+    if image.bytes == 0 {
         return Err(Error::Format("image is empty".into()));
     }
-    let bytes = output_format.for_output(output).emit(&image);
-    write_output_atomically(output, &bytes)?;
-    Ok(image.bytes.len())
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    {
+        let mut writer = BufWriter::new(temporary.as_file_mut());
+        output_format.for_output(output).encode_from(
+            image.spool.as_file_mut(),
+            &mut writer,
+            image.bytes,
+        )?;
+        writer.flush()?;
+    }
+    temporary.as_file().sync_all()?;
+    temporary.persist(output).map_err(|error| error.error)?;
+    usize::try_from(image.bytes)
+        .map_err(|_| Error::Format("image is too large for this host".into()))
 }
 
 fn run_convert(
@@ -1552,6 +1586,32 @@ mod tests {
             std::fs::remove_file(file).unwrap();
         }
         std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn convert_streams_a_raw_image_above_the_old_memory_limit() {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("large.bin");
+        let destination = directory.path().join("copy.bin");
+        let bytes = minipro_core::format::MAX_IMAGE_BYTES as u64 + 7;
+        let mut file = std::fs::File::create(&source).unwrap();
+        file.set_len(bytes).unwrap();
+        file.seek(SeekFrom::Start(bytes - 1)).unwrap();
+        file.write_all(&[0xab]).unwrap();
+        drop(file);
+        assert_eq!(
+            convert_image(&source, Fmt::Auto, &destination, Fmt::Raw).unwrap() as u64,
+            bytes
+        );
+        let mut copied = std::fs::File::open(&destination).unwrap();
+        assert_eq!(copied.metadata().unwrap().len(), bytes);
+        let mut byte = [0];
+        copied.read_exact(&mut byte).unwrap();
+        assert_eq!(byte, [0]);
+        copied.seek(SeekFrom::Start(bytes - 1)).unwrap();
+        copied.read_exact(&mut byte).unwrap();
+        assert_eq!(byte, [0xab]);
     }
 
     #[cfg(unix)]

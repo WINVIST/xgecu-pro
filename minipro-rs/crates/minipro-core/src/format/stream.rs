@@ -3,7 +3,7 @@
 //! Bounded-memory format I/O. Callers prepare private temporary files and
 //! publish their outputs atomically only after all validation succeeds.
 
-use std::io::{BufRead, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 
 use super::{decode_hex, ihex_record, srec_record, Format, MAX_STREAMED_IMAGE_BYTES};
 use crate::error::{Error, Result};
@@ -13,6 +13,16 @@ const MAX_RECORD_BYTES: usize = 1024;
 const MAX_TEXT_BYTES: u64 = MAX_STREAMED_IMAGE_BYTES * 4;
 
 impl Format {
+    /// Sniff the first nonblank record with the same shape rules as `detect`,
+    /// using a streaming scan rather than retaining the first line. Restore
+    /// the reader position, including when the scan returns an I/O error.
+    pub fn detect_from<R: BufRead + Seek>(input: &mut R) -> Result<Self> {
+        let position = input.stream_position()?;
+        let detected = sniff_record(input);
+        input.seek(SeekFrom::Start(position))?;
+        detected
+    }
+
     /// Decode an image into an empty seekable spool. Addressed gaps use `pad`;
     /// later overlapping records replace earlier bytes, as in `parse`.
     /// No buffer grows with image capacity. On error the private spool may
@@ -50,6 +60,7 @@ impl Format {
         let mut image_len = 0u64;
         let mut line_number = 0u64;
         let mut text_bytes = 0u64;
+        let mut eof_seen = false;
         while let Some(line) = read_record_line(input)? {
             line_number += 1;
             text_bytes += line.len() as u64;
@@ -59,7 +70,7 @@ impl Format {
             let text = std::str::from_utf8(&line)
                 .map_err(|_| Error::Format("text image is not valid ASCII".into()))?
                 .trim();
-            if text.is_empty() {
+            if text.is_empty() || eof_seen {
                 continue;
             }
             match self {
@@ -89,7 +100,7 @@ impl Format {
                             })?;
                             apply_record(output, &mut image_len, absolute, data, pad, max_len)?;
                         }
-                        1 if data.is_empty() => break,
+                        1 if data.is_empty() => eof_seen = true,
                         2 if data.len() == 2 => {
                             base = u32::from(u16::from_be_bytes([data[0], data[1]])) << 4;
                         }
@@ -170,6 +181,7 @@ impl Format {
             return Err(Error::Format("image spool length changed".into()));
         }
         input.seek(SeekFrom::Start(0))?;
+        let mut input = BufReader::with_capacity(CHUNK_BYTES, input);
         if self == Self::Raw {
             let mut chunk = [0u8; CHUNK_BYTES];
             let mut remaining = len;
@@ -207,10 +219,15 @@ impl Format {
                         upper = high;
                         ihex_record(&mut record, &[2, 0, 0, 4, (high >> 8) as u8, high as u8]);
                     }
-                    let mut body = Vec::with_capacity(20);
-                    body.extend_from_slice(&[count as u8, (address >> 8) as u8, address as u8, 0]);
-                    body.extend_from_slice(&chunk[..count]);
-                    ihex_record(&mut record, &body);
+                    let mut body = [0u8; 20];
+                    body[..4].copy_from_slice(&[
+                        count as u8,
+                        (address >> 8) as u8,
+                        address as u8,
+                        0,
+                    ]);
+                    body[4..4 + count].copy_from_slice(&chunk[..count]);
+                    ihex_record(&mut record, &body[..4 + count]);
                 }
                 Self::SRec => srec_record(
                     &mut record,
@@ -242,6 +259,74 @@ fn check_capacity(len: u64) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn sniff_record<R: BufRead>(input: &mut R) -> Result<Format> {
+    let mut marker = None;
+    let mut s_digit = false;
+    let mut hex_digits = 0u64;
+    let mut trailing_space = false;
+    loop {
+        let buffer = input.fill_buf()?;
+        if buffer.is_empty() {
+            break;
+        }
+        let mut consumed = 0;
+        let mut result = None;
+        for &byte in buffer {
+            consumed += 1;
+            if marker.is_none() {
+                if byte.is_ascii_whitespace() {
+                    continue;
+                }
+                match byte {
+                    b':' | b'S' => marker = Some(byte),
+                    _ => {
+                        result = Some(Format::Raw);
+                        break;
+                    }
+                }
+                continue;
+            }
+            if byte == b'\n' {
+                result = Some(sniff_result(marker, s_digit, hex_digits));
+                break;
+            }
+            if byte.is_ascii_whitespace() {
+                trailing_space = true;
+                continue;
+            }
+            if trailing_space {
+                result = Some(Format::Raw);
+                break;
+            }
+            if marker == Some(b'S') && !s_digit {
+                if !byte.is_ascii_digit() {
+                    result = Some(Format::Raw);
+                    break;
+                }
+                s_digit = true;
+            } else if byte.is_ascii_hexdigit() {
+                hex_digits += 1;
+            } else {
+                result = Some(Format::Raw);
+                break;
+            }
+        }
+        input.consume(consumed);
+        if let Some(format) = result {
+            return Ok(format);
+        }
+    }
+    Ok(sniff_result(marker, s_digit, hex_digits))
+}
+
+fn sniff_result(marker: Option<u8>, s_digit: bool, hex_digits: u64) -> Format {
+    match marker {
+        Some(b':') if hex_digits >= 10 && hex_digits % 2 == 0 => Format::IHex,
+        Some(b'S') if s_digit && hex_digits >= 8 && hex_digits % 2 == 0 => Format::SRec,
+        _ => Format::Raw,
+    }
 }
 
 fn read_record_line<R: BufRead>(input: &mut R) -> Result<Option<Vec<u8>>> {
@@ -374,6 +459,30 @@ mod tests {
     }
 
     #[test]
+    fn streamed_sniff_matches_the_existing_detector_and_restores_position() {
+        for input in [
+            b"\n  :00000001FF  \r\n".as_slice(),
+            b"S9030000FC\n".as_slice(),
+            b"Sample binary image".as_slice(),
+            b":not a record".as_slice(),
+            b":0100 000012ED\n".as_slice(),
+            b"S9030000FC ABC\n".as_slice(),
+        ] {
+            let mut reader = BufReader::with_capacity(2, Cursor::new(input));
+            assert_eq!(
+                Format::detect_from(&mut reader).unwrap(),
+                Format::detect(input)
+            );
+            assert_eq!(reader.stream_position().unwrap(), 0);
+        }
+        let mut prefix = vec![b' '; 20_000];
+        prefix.extend_from_slice(b"\n:00000001FF\n");
+        let mut reader = BufReader::with_capacity(7, Cursor::new(&prefix));
+        assert_eq!(Format::detect_from(&mut reader).unwrap(), Format::IHex);
+        assert_eq!(reader.stream_position().unwrap(), 0);
+    }
+
+    #[test]
     fn streamed_formats_match_existing_wire_files_across_address_boundaries() {
         let image = Image {
             bytes: (0..70_003).map(|index| (index % 251) as u8).collect(),
@@ -453,5 +562,29 @@ mod tests {
             spool.into_inner(),
             Format::IHex.parse(records.as_bytes(), 0xe5).unwrap().bytes
         );
+    }
+
+    #[test]
+    fn malformed_streamed_records_never_panic_or_escape_capacity() {
+        let image = Image {
+            bytes: vec![0x12, 0x34, 0x56, 0x78],
+        };
+        for format in [Format::IHex, Format::SRec] {
+            let valid = format.emit(&image);
+            for position in 0..valid.len() {
+                for replacement in [0, b'F', b':', b'\n', 0xff] {
+                    let mut mutated = valid.clone();
+                    mutated[position] = replacement;
+                    let mut spool = Cursor::new(Vec::new());
+                    let _ = format.decode_to(
+                        &mut BufReader::with_capacity(1, Cursor::new(mutated)),
+                        &mut spool,
+                        0xff,
+                        64,
+                    );
+                    assert!(spool.get_ref().len() <= 64);
+                }
+            }
+        }
     }
 }

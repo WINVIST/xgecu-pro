@@ -120,6 +120,19 @@ jobs:
           "$helper" --json convert "$RUNNER_TEMP/input-256m.bin" "$RUNNER_TEMP/output-256m.bin" | jq -e '.ok == true'
           cmp "$RUNNER_TEMP/input-256m.bin" "$RUNNER_TEMP/output-256m.bin"
 
+      - name: Check streaming conversion at the catalog size target
+        run: |
+          helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          input="$RUNNER_TEMP/input-catalog-max.bin"
+          output="$RUNNER_TEMP/output-catalog-max.bin"
+          bytes=1140850688
+          python3 -c 'import sys; f=open(sys.argv[1], "wb"); f.truncate(int(sys.argv[2])); f.seek(-1, 2); f.write(b"\xab"); f.close()' "$input" "$bytes"
+          /usr/bin/time -l "$helper" --json convert "$input" "$output" > "$RUNNER_TEMP/stream-convert.json" 2> "$RUNNER_TEMP/stream-memory.txt"
+          jq -e '.ok == true and .bytes == 1140850688' "$RUNNER_TEMP/stream-convert.json"
+          cmp "$input" "$output"
+          cat "$RUNNER_TEMP/stream-memory.txt"
+          awk '/maximum resident set size/ { found=1; if ($1 > 134217728) exit 1 } END { if (!found) exit 1 }' "$RUNNER_TEMP/stream-memory.txt"
+
       - name: Package unsigned macOS app
         run: |
           app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
