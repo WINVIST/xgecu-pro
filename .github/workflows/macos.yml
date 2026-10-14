@@ -58,7 +58,7 @@ jobs:
 
       - name: Capture native SwiftUI previews without hardware
         run: |
-          swiftc -parse-as-library -D UI_PREVIEW \
+          swiftc -parse-as-library -target arm64-apple-macos26.0 -D UI_PREVIEW \
             mac-app/XGecuPro/Sources/XGecuProApp.swift \
             mac-app/XGecuPro/Sources/AppModel.swift \
             mac-app/XGecuPro/Sources/MiniProRunner.swift \
