@@ -107,22 +107,27 @@ private struct ChipSidebar: View {
                 Button("Auto Detect SOIC16", systemImage: "sparkle.magnifyingglass") { model.autoDetectSOIC16() }
                     .disabled(!model.isT76)
                     .help("Suggest SOIC16 entries from the chip ID; confirm the printed marking.")
+                Button("Browse All Chips", systemImage: "list.bullet") { model.browseCatalog() }
+                    .help("Load the complete database catalog; favorites appear first.")
             }
             .disabled(model.busy)
             List(selection: chipSelection) {
-                ForEach(model.hits, id: \.self) { chip in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(chip.components(separatedBy: "@").first ?? chip).font(.callout.weight(.medium))
-                        if let package = chip.components(separatedBy: "@").dropFirst().first {
-                            Text(package).font(.caption).foregroundStyle(.secondary)
+                if !model.favoriteHits.isEmpty {
+                    Section("Favorites") {
+                        ForEach(model.favoriteHits, id: \.self) { chip in
+                            ChipBrowserRow(model: model, chip: chip).tag(chip)
                         }
                     }
-                    .padding(.vertical, 3).tag(chip).help(chip)
+                }
+                Section(model.catalog == nil ? "Results" : "Catalog") {
+                    ForEach(model.otherHits, id: \.self) { chip in
+                        ChipBrowserRow(model: model, chip: chip).tag(chip)
+                    }
                 }
             }
             .listStyle(.sidebar).disabled(model.busy)
             .overlay {
-                if model.hits.isEmpty {
+                if model.favoriteHits.isEmpty && model.otherHits.isEmpty {
                     VStack(spacing: 8) {
                         if model.busy {
                             ProgressView().controlSize(.small)
@@ -139,7 +144,11 @@ private struct ChipSidebar: View {
                 }
             }
             if !model.hits.isEmpty {
-                Text("\(model.hits.count) results · select to load details").font(.caption).foregroundStyle(.secondary)
+                Text(model.catalog.map { "\(model.hits.count.formatted()) of \($0.names.count.formatted()) entries" }
+                     ?? "\(model.hits.count) results · select to load details")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if !model.favoriteHits.isEmpty {
+                Text("Favorites are shortcuts, not validated hardware support.").font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             HStack(alignment: .top) {
@@ -159,6 +168,30 @@ private struct ChipSidebar: View {
             }
         }
         .padding(16).navigationTitle("Chips")
+    }
+}
+
+private struct ChipBrowserRow: View {
+    @ObservedObject var model: AppModel
+    let chip: String
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(chip.components(separatedBy: "@").first ?? chip).font(.callout.weight(.medium))
+                if let package = chip.components(separatedBy: "@").dropFirst().first {
+                    Text(package).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            Button { model.toggleFavorite(chip) } label: {
+                Image(systemName: model.favoriteChips.contains(chip) ? "star.fill" : "star")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel((model.favoriteChips.contains(chip) ? "Remove from favorites: " : "Add to favorites: ") + chip)
+            .help(model.favoriteChips.contains(chip) ? "Remove from favorites" : "Add to favorites")
+        }
+        .padding(.vertical, 3).help(chip)
     }
 }
 

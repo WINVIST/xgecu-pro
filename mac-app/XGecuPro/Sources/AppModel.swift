@@ -12,9 +12,13 @@ final class AppModel: ObservableObject {
         if !databasePath.isEmpty { return databasePath }
         return MiniProRunner.bundledDatabasePath == nil ? "automatic (cached after first download)" : "bundled for offline use"
     }
-    @Published var query = ""
+    @Published var query = "" {
+        didSet { if catalog != nil { filterCatalog() } }
+    }
     @Published var hits: [String] = []
     @Published var hasSearched = false
+    @Published var catalog: ChipCatalog?
+    @Published var favoriteChips = FavoriteChipStore().load()
     @Published var selectedChip = ""
     @Published var chipDetails: ChipDetails?
     @Published var deviceStatus = "Programmer not checked"
@@ -54,6 +58,27 @@ final class AppModel: ObservableObject {
     private var cleanSHA256 = ""
     private var lastSearch: Data?
     private var lastFoundOffset: Int?
+
+    var favoriteHits: [String] {
+        let favorites = Set(favoriteChips)
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasSearched {
+            return favoriteChips
+        }
+        return hits.filter { favorites.contains($0) }
+    }
+
+    var otherHits: [String] {
+        let favorites = Set(favoriteChips)
+        return hits.filter { !favorites.contains($0) }
+    }
+
+    func toggleFavorite(_ chip: String) {
+        guard !busy, !chip.isEmpty else { return }
+        var names = Set(favoriteChips)
+        if names.contains(chip) { names.remove(chip) } else { names.insert(chip) }
+        favoriteChips = ChipCatalog(names: Array(names)).names
+        FavoriteChipStore().save(favoriteChips)
+    }
     var bufferSourceDescription: String? {
         guard bufferSize > 0, let lastFile else { return nil }
         if let bufferChip {
@@ -104,12 +129,48 @@ final class AppModel: ObservableObject {
     }
 
     func search() {
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        perform(["search", text, "--limit", "100"]) { [weak self] result in
-            self?.hits = result["hits"] as? [String] ?? []
-            self?.hasSearched = true
-            self?.status = "Results: \(result["n"] as? Int ?? 0)."
+        guard !busy else { return }
+        if catalog != nil {
+            filterCatalog()
+            status = "Results: \(hits.count.formatted()) across the complete catalog."
+        } else {
+            loadCatalog()
+        }
+    }
+
+    func browseCatalog() {
+        guard !busy else { return }
+        query = ""
+        search()
+    }
+
+    private func filterCatalog() {
+        guard let catalog else { return }
+        hits = catalog.matching(query)
+        hasSearched = true
+    }
+
+    private func loadCatalog() {
+        // Count first, then request exactly that many names. No fixed search
+        // truncation or chip allowlist is used for the browser.
+        let database = databasePath
+        perform(["search", "", "--limit", "0"], databasePath: database) { [weak self] count in
+            guard let self else { return }
+            guard let total = count["n"] as? Int, total >= 0, total <= 1_000_000 else {
+                self.status = "Error: The database returned an invalid catalog count."
+                return
+            }
+            self.perform(["search", "", "--limit", String(total)], databasePath: database) { [weak self] result in
+                guard let self else { return }
+                guard let names = result["hits"] as? [String], names.count == total,
+                      result["n"] as? Int == total, result["more"] as? Bool == false else {
+                    self.status = "Error: The database changed while loading its catalog. Try browsing again."
+                    return
+                }
+                self.catalog = ChipCatalog(names: names)
+                self.filterCatalog()
+                self.status = "Catalog loaded: \(self.catalog?.names.count.formatted() ?? "0") entries. Filter by chip name or package."
+            }
         }
     }
 
@@ -120,6 +181,7 @@ final class AppModel: ObservableObject {
             return
         }
         // A failed or unfamiliar ID must leave chip operations disabled.
+        query = ""
         selectedChip = ""
         chipDetails = nil
         hits = []
@@ -322,6 +384,7 @@ final class AppModel: ObservableObject {
         panel.canChooseDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         databasePath = url.path
+        catalog = nil
         hits = []
         hasSearched = false
         selectedChip = ""
@@ -332,6 +395,7 @@ final class AppModel: ObservableObject {
     func useDefaultDatabase() {
         guard !busy else { return }
         databasePath = ""
+        catalog = nil
         hits = []
         hasSearched = false
         selectedChip = ""

@@ -26,6 +26,12 @@ choose a firmware binary, and program it with readback verification.
 - After this workflow is reviewed on the target Mac, continue with the
   full catalog and favorites, then file-backed buffers and streaming.
 
+The user authorized continuing the complete primary roadmap on 2026-10-15.
+Catalog and favorites are now implemented in source: complete database
+browsing, live name/package filtering, persisted favorites at the top of
+the picker, and metadata lookup before chip operations. The next primary
+item is file-backed buffers and streamed verification/programming.
+
 See [the usability iteration](UX-ITERATION.md) for the design rationale and
 target-Mac review checklist.
 

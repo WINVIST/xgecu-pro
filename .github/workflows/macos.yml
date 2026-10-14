@@ -30,7 +30,7 @@ jobs:
             mac-app/XGecuPro/Sources/XGecuProApp.swift \
             mac-app/XGecuPro/Sources/AppModel.swift \
             mac-app/XGecuPro/Sources/MiniProRunner.swift \
-            mac-app/Shared/HexBuffer.swift mac-app/Shared/ChipPolicy.swift \
+            mac-app/Shared/HexBuffer.swift mac-app/Shared/ChipPolicy.swift mac-app/Shared/ChipCatalog.swift \
             mac-app/scripts/capture-ui-previews.swift \
             -o "$RUNNER_TEMP/capture-ui-previews"
           "$RUNNER_TEMP/capture-ui-previews" "$RUNNER_TEMP/ui-previews"
@@ -98,6 +98,16 @@ jobs:
           app="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app"
           personal="$RUNNER_TEMP/XGecuPro-Offline.app"
           test ! -e "$app/Contents/Resources/ChipDatabase"
+
+      - name: Check complete catalog browsing without hardware
+        run: |
+          helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          count=$("$helper" --json search "" --limit 0)
+          printf '%s\n' "$count" | jq -e '.ok == true and .n > 10000 and (.hits | length) == 0 and .more == true'
+          total=$(printf '%s\n' "$count" | jq -r '.n')
+          "$helper" --json search "" --limit "$total" > "$RUNNER_TEMP/catalog.json"
+          jq -e '.ok == true and .more == false and .n == (.hits | length) and (.hits | index("MX25L51245G@SOIC16") != null)' "$RUNNER_TEMP/catalog.json"
+          printf 'Complete catalog: %s entries\n' "$total"
           bash mac-app/scripts/make-personal-offline-app.sh "$app" "$personal"
           test -f "$personal/Contents/Resources/ChipDatabase/InfoICT76.dll"
           codesign --verify --deep --strict --verbose=2 "$personal"

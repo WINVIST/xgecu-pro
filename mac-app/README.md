@@ -142,6 +142,12 @@ that ID in the selected database. If there is one entry, it is selected;
 otherwise choose the entry matching the printed chip marking. A shared JEDEC
 ID is not proof of an exact model. Confirm the marking and adapter placement
 before any operation.
+**Browse All Chips** loads the complete selected database catalog without a
+programmer connection. Search then filters all entries by name or package as
+you type. Click a row's star to add or remove a favorite; saved favorites
+appear first and remain available after reopening the app. Favorites do not
+claim hardware-validated support. Selecting any entry still loads its current
+metadata from the selected database before enabling chip operations.
 Alternatively, search for the
 chip name and select its exact `@SOIC16` entry. The **Program** tab follows
 three steps: **Chip**, **Firmware**, and **Program and verify**. Click

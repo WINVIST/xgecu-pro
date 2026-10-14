@@ -23,6 +23,8 @@ struct CaptureUIPreviews {
             ("05-ready-dark-compact", true, 0, NSSize(width: 1020, height: 680)),
             ("06-hex-editor", false, 1, NSSize(width: 1180, height: 820)),
             ("07-chip-lookup", false, 0, NSSize(width: 1020, height: 680)),
+            ("08-catalog-favorites", false, 0, NSSize(width: 1180, height: 820)),
+            ("09-catalog-filter-dark", true, 0, NSSize(width: 1020, height: 680)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
@@ -79,7 +81,13 @@ struct CaptureUIPreviews {
         model.programmingFile = URL(fileURLWithPath: "/Users/example/Firmware/router-firmware.bin")
         model.programmingFileBytes = 67_108_864
         model.status = "Firmware selected: router-firmware.bin."
-        if name == "07-chip-lookup" {
+        if name == "08-catalog-favorites" || name == "09-catalog-filter-dark" {
+            let names = ["AT27C256@DIP28", "MX25L51245G@SOIC16", "MX25L51245G@WSON8", "W27C512@DIP28", "W25Q128BV@SOIC8"]
+            model.favoriteChips = ["MX25L51245G@SOIC16", "W27C512@DIP28"]
+            model.catalog = ChipCatalog(names: names)
+            model.query = name == "08-catalog-favorites" ? "" : "mx25l"
+            model.status = "Catalog loaded. Favorites are shown first."
+        } else if name == "07-chip-lookup" {
             model.hits = []
             model.selectedChip = ""
             model.chipDetails = nil
