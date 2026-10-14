@@ -285,6 +285,7 @@ final class AppModel: ObservableObject {
             alert.informativeText = "Firmware: \(url.lastPathComponent)\n\nPreflight passed. This will change the chip contents; erasable chips are erased before programming. Short images are padded to the chip capacity with the erased byte. Save the original dump first."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Program and Verify")
+            alert.buttons[0].keyEquivalent = "\r"
             alert.buttons[1].keyEquivalent = ""
             guard alert.runModal() == .alertSecondButtonReturn else { return }
             committed = true
@@ -307,6 +308,7 @@ final class AppModel: ObservableObject {
         alert.informativeText = "All data on the chip will be erased. Save a dump first."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Erase")
+        alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = ""
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         perform(["erase", selectedChip]) { [weak self] _ in

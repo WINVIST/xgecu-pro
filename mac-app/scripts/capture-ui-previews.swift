@@ -84,9 +84,16 @@ struct CaptureUIPreviews {
             model.bufferDirty = true
             model.lastFile = URL(fileURLWithPath: "/Users/example/Firmware/original-dump.bin")
             model.bufferSHA256 = String(repeating: "0123456789abcdef", count: 4)
-            model.hexPreview = (0..<16).map { row in
-                String(format: "%08X", row * 16) + "  " + (0..<16).map { String(format: "%02X", row * 16 + $0) }.joined(separator: " ") + "  ................"
-            }.joined(separator: "\n")
+            var lines: [String] = []
+            for row in 0..<16 {
+                let address = String(format: "%08X", row * 16)
+                var bytes: [String] = []
+                for column in 0..<16 {
+                    bytes.append(String(format: "%02X", row * 16 + column))
+                }
+                lines.append(address + "  " + bytes.joined(separator: " ") + "  ................")
+            }
+            model.hexPreview = lines.joined(separator: "\n")
             model.status = "Buffer modified. Save it before programming."
         }
         return model
