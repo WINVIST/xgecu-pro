@@ -24,6 +24,25 @@ jobs:
           rustc --version
           rustup target add aarch64-apple-darwin
 
+      - name: Capture native SwiftUI previews without hardware
+        run: |
+          swiftc -parse-as-library -target arm64-apple-macos26.0 -D UI_PREVIEW \
+            mac-app/XGecuPro/Sources/XGecuProApp.swift \
+            mac-app/XGecuPro/Sources/AppModel.swift \
+            mac-app/XGecuPro/Sources/MiniProRunner.swift \
+            mac-app/Shared/HexBuffer.swift mac-app/Shared/ChipPolicy.swift \
+            mac-app/scripts/capture-ui-previews.swift \
+            -o "$RUNNER_TEMP/capture-ui-previews"
+          "$RUNNER_TEMP/capture-ui-previews" "$RUNNER_TEMP/ui-previews"
+
+      - name: Upload native UI previews
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: XGecuPro-native-ui-previews
+          path: ${{ runner.temp }}/ui-previews/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Test Rust workspace
         working-directory: minipro-rs
         run: |
@@ -55,25 +74,6 @@ jobs:
           codesign --force --sign - --timestamp=none "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           "$app/Contents/Resources/minipro" --version
-
-      - name: Capture native SwiftUI previews without hardware
-        run: |
-          swiftc -parse-as-library -target arm64-apple-macos26.0 -D UI_PREVIEW \
-            mac-app/XGecuPro/Sources/XGecuProApp.swift \
-            mac-app/XGecuPro/Sources/AppModel.swift \
-            mac-app/XGecuPro/Sources/MiniProRunner.swift \
-            mac-app/Shared/HexBuffer.swift mac-app/Shared/ChipPolicy.swift \
-            mac-app/scripts/capture-ui-previews.swift \
-            -o "$RUNNER_TEMP/capture-ui-previews"
-          "$RUNNER_TEMP/capture-ui-previews" "$RUNNER_TEMP/ui-previews"
-
-      - name: Upload native UI previews
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: XGecuPro-native-ui-previews
-          path: ${{ runner.temp }}/ui-previews/*.png
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Check requested chips in pinned database
         run: |

@@ -51,8 +51,8 @@ struct CaptureUIPreviews {
             try capture.run()
             capture.waitUntilExit()
             guard capture.terminationStatus == 0,
-                  let image = NSBitmapImageRep(contentsOf: file),
-                  let png = try? Data(contentsOf: file), png.count > 10_000 else {
+                  let png = try? Data(contentsOf: file), png.count > 10_000,
+                  let image = NSBitmapImageRep(data: png) else {
                 fatalError("WindowServer capture failed or is empty: \(name)")
             }
             print("Captured \(name): \(image.pixelsWide) x \(image.pixelsHigh), \(png.count) bytes")
