@@ -122,6 +122,11 @@ fn diagnose(profile: Profile, report: &mut Report) -> Result<()> {
         may_configure_t76(T76_VID, T76_PID),
         &mut report.opening,
     )?;
+    if report.opening.configuration_selection_reason
+        == Some("get_configuration_stalled_no_host_interfaces")
+    {
+        report.notes.push("GET_CONFIGURATION was rejected; selected the only declared configuration through macOS and opened interface 0. Initial device configuration remains unknown; testing actual command exchange.".into());
+    }
     let mut tx = UsbTransport {
         device,
         interface: Some(interface),

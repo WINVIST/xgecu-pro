@@ -1,7 +1,7 @@
-//! Interface publication and strictly conditional initial USB configuration.
+//! Interface publication and scoped USB configuration compatibility handling.
 use super::*;
 use nusb::descriptors::TransferType;
-use nusb::transfer::{ControlIn, ControlType, Recipient};
+use nusb::transfer::{ControlIn, ControlType, Recipient, TransferError};
 use serde::Serialize;
 
 #[derive(Debug, Default, Serialize)]
@@ -13,8 +13,11 @@ pub struct OpenReport {
     pub device_configuration_before: Option<u8>,
     pub configuration_read_error: Option<String>,
     pub selected_configuration: Option<u8>,
+    pub configuration_selection_reason: Option<&'static str>,
     pub configuration_set_error: Option<String>,
+    pub configuration_readback_error: Option<String>,
     pub device_configuration_after: Option<u8>,
+    pub interface_claimed: bool,
     pub claim_attempts: Vec<ClaimAttempt>,
 }
 
@@ -73,7 +76,24 @@ pub(super) fn describe(device: &nusb::Device, report: &mut OpenReport) {
         .collect();
 }
 
-pub(super) fn read_configuration(device: &nusb::Device) -> Result<u8> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ConfigurationReadError {
+    Stall,
+    Failed(String),
+}
+
+impl std::fmt::Display for ConfigurationReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stall => write!(f, "GET_CONFIGURATION: endpoint stalled"),
+            Self::Failed(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+type ConfigurationResult = std::result::Result<u8, ConfigurationReadError>;
+
+pub(super) fn read_configuration(device: &nusb::Device) -> ConfigurationResult {
     let bytes = device
         .control_in(
             ControlIn {
@@ -87,14 +107,17 @@ pub(super) fn read_configuration(device: &nusb::Device) -> Result<u8> {
             SHORT_TIMEOUT,
         )
         .wait()
-        .map_err(|e| Error::Usb(format!("GET_CONFIGURATION: {e}")))?;
+        .map_err(|e| match e {
+            TransferError::Stall => ConfigurationReadError::Stall,
+            _ => ConfigurationReadError::Failed(format!("GET_CONFIGURATION: {e}")),
+        })?;
     decode_configuration(&bytes)
 }
 
-fn decode_configuration(bytes: &[u8]) -> Result<u8> {
+fn decode_configuration(bytes: &[u8]) -> ConfigurationResult {
     match bytes {
         [value] => Ok(*value),
-        _ => Err(Error::Usb(format!(
+        _ => Err(ConfigurationReadError::Failed(format!(
             "GET_CONFIGURATION: expected 1 byte, got {}",
             bytes.len()
         ))),
@@ -130,7 +153,7 @@ struct ClaimFailure {
 trait OpenIo {
     type Interface;
     fn claim(&self) -> std::result::Result<Self::Interface, ClaimFailure>;
-    fn configuration(&self) -> Result<u8>;
+    fn configuration(&self) -> ConfigurationResult;
     fn configure(&self, value: u8) -> Result<()>;
 }
 
@@ -146,7 +169,7 @@ impl OpenIo for nusb::Device {
             },
         })
     }
-    fn configuration(&self) -> Result<u8> {
+    fn configuration(&self) -> ConfigurationResult {
         read_configuration(self)
     }
     fn configure(&self, value: u8) -> Result<()> {
@@ -186,7 +209,10 @@ fn claim_with<T: OpenIo>(
         }
         attempt += 1;
         match device.claim() {
-            Ok(interface) => return Ok(interface),
+            Ok(interface) => {
+                report.interface_claimed = true;
+                return Ok(interface);
+            }
             Err(error) => {
                 let missing = error.kind == nusb::ErrorKind::NotFound;
                 let terminal = matches!(
@@ -199,40 +225,10 @@ fn claim_with<T: OpenIo>(
                 }
                 if missing && allow_initial_configuration && !checked {
                     checked = true;
-                    match device.configuration() {
-                        Ok(value) => {
-                            report.device_configuration_before = Some(value);
-                            report.configuration_read_error = None;
-                            if value == 0 {
-                                let candidates = suitable_configurations(report);
-                                let [selected] = candidates.as_slice() else {
-                                    report.configuration_set_error = Some("unconfigured T76 has no unique declared configuration with interface 0 and bulk 01/81".into());
-                                    break;
-                                };
-                                report.selected_configuration = Some(*selected);
-                                if let Err(e) = device.configure(*selected) {
-                                    report.configuration_set_error = Some(e.to_string());
-                                    break;
-                                }
-                                match device.configuration() {
-                                    Ok(after) => {
-                                        report.device_configuration_after = Some(after);
-                                        if after != *selected {
-                                            report.configuration_set_error = Some(format!("device reports configuration {after} after selecting {selected}"));
-                                            break;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        report.configuration_read_error = Some(e.to_string());
-                                        break;
-                                    }
-                                }
-                                // Give the OS a fresh bounded claim window after
-                                // configuration. No reset, no 1->0, no reselect.
-                                budget = attempt + CLAIM_ATTEMPTS;
-                            }
-                        }
-                        Err(e) => report.configuration_read_error = Some(e.to_string()),
+                    match try_configuration(device, report) {
+                        Ok(true) => budget = attempt + CLAIM_ATTEMPTS,
+                        Ok(false) => {}
+                        Err(()) => break,
                     }
                 }
             }
@@ -246,8 +242,80 @@ fn claim_with<T: OpenIo>(
     Err(Error::Usb(format!(
         "claim interface 0: {last}; device configuration={:?}, cached={:?}, selected={:?}; configuration error={:?}; close other programmer apps, then reconnect the T76",
         report.device_configuration_before, report.cached_configuration, report.selected_configuration,
-        report.configuration_set_error.as_ref().or(report.configuration_read_error.as_ref()),
+        report.configuration_set_error.as_ref().or(report.configuration_readback_error.as_ref()).or(report.configuration_read_error.as_ref()),
     )))
+}
+
+fn try_configuration<T: OpenIo>(
+    device: &T,
+    report: &mut OpenReport,
+) -> std::result::Result<bool, ()> {
+    let reason = match device.configuration() {
+        Ok(value) => {
+            report.device_configuration_before = Some(value);
+            report.configuration_read_error = None;
+            if value == 0 {
+                Some("device_reported_zero")
+            } else {
+                None
+            }
+        }
+        Err(error) => {
+            let stalled = error == ConfigurationReadError::Stall;
+            report.device_configuration_before = None;
+            report.configuration_read_error = Some(error.to_string());
+            // nusb 0.2.7 exposes cached zero as this error. Cached zero is not
+            // proof of device state; combined with no host interfaces and an
+            // explicit protocol STALL it permits one libusb-style compatibility
+            // selection. Timeout/disconnect/short replies do not permit it.
+            if stalled
+                && report.enumerated_interfaces.is_empty()
+                && report.cached_configuration.is_none()
+                && report.cached_configuration_error.as_deref() == Some("device is not configured")
+                && report.configurations.len() == 1
+            {
+                Some("get_configuration_stalled_no_host_interfaces")
+            } else {
+                None
+            }
+        }
+    };
+    let Some(reason) = reason else {
+        return Ok(false);
+    };
+    let candidates = suitable_configurations(report);
+    let [selected] = candidates.as_slice() else {
+        report.configuration_set_error =
+            Some("no unique declared configuration with interface 0 and bulk 01/81".into());
+        return Err(());
+    };
+    report.selected_configuration = Some(*selected);
+    report.configuration_selection_reason = Some(reason);
+    if let Err(error) = device.configure(*selected) {
+        report.configuration_set_error = Some(error.to_string());
+        return Err(());
+    }
+    match device.configuration() {
+        Ok(after) => {
+            report.device_configuration_after = Some(after);
+            if after != *selected {
+                report.configuration_set_error = Some(format!(
+                    "device reports configuration {after} after selecting {selected}"
+                ));
+                return Err(());
+            }
+        }
+        Err(error) => {
+            report.configuration_readback_error = Some(error.to_string());
+            if error != ConfigurationReadError::Stall {
+                return Err(());
+            }
+            // A device refusing this standard read can still expose working
+            // interfaces after OS selection. Claim + command endpoints + actual
+            // system-info exchange validate the usable path. Never select again.
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -258,7 +326,7 @@ mod tests {
 
     struct Fake {
         claims: RefCell<VecDeque<&'static str>>,
-        values: RefCell<VecDeque<Option<u8>>>,
+        values: RefCell<VecDeque<ConfigurationResult>>,
         selected: RefCell<Vec<u8>>,
         fail_set: bool,
     }
@@ -283,12 +351,12 @@ mod tests {
                 },
             })
         }
-        fn configuration(&self) -> Result<u8> {
-            self.values
-                .borrow_mut()
-                .pop_front()
-                .flatten()
-                .ok_or(Error::Protocol)
+        fn configuration(&self) -> ConfigurationResult {
+            self.values.borrow_mut().pop_front().unwrap_or_else(|| {
+                Err(ConfigurationReadError::Failed(
+                    "configuration read failed".into(),
+                ))
+            })
         }
         fn configure(&self, value: u8) -> Result<()> {
             self.selected.borrow_mut().push(value);
@@ -302,7 +370,16 @@ mod tests {
     fn fake(claims: &[&'static str], values: &[Option<u8>]) -> Fake {
         Fake {
             claims: RefCell::new(claims.iter().copied().collect()),
-            values: RefCell::new(values.iter().copied().collect()),
+            values: RefCell::new(
+                values
+                    .iter()
+                    .map(|value| {
+                        value.ok_or_else(|| {
+                            ConfigurationReadError::Failed("configuration read failed".into())
+                        })
+                    })
+                    .collect(),
+            ),
             selected: RefCell::new(vec![]),
             fail_set: false,
         }
@@ -412,5 +489,100 @@ mod tests {
         trace.configurations[0].value = 7;
         claim_with(&io, true, &mut trace, |_| {}).unwrap();
         assert_eq!(*io.selected.borrow(), vec![7]);
+    }
+
+    fn stalled_fixture(
+        claims: &[&'static str],
+        readback: ConfigurationResult,
+    ) -> (Fake, OpenReport) {
+        let io = fake(claims, &[]);
+        *io.values.borrow_mut() = [Err(ConfigurationReadError::Stall), readback]
+            .into_iter()
+            .collect();
+        let mut trace = report();
+        trace.cached_configuration_error = Some("device is not configured".into());
+        (io, trace)
+    }
+
+    #[test]
+    fn stalled_configuration_gets_one_scoped_compatibility_selection() {
+        for readback in [Ok(1), Err(ConfigurationReadError::Stall)] {
+            let (io, mut trace) = stalled_fixture(&["NotFound", "NotFound", "ok"], readback);
+            claim_with(&io, true, &mut trace, |_| {}).unwrap();
+            assert_eq!(*io.selected.borrow(), vec![1]);
+            assert_eq!(trace.device_configuration_before, None);
+            assert_eq!(
+                trace.configuration_selection_reason,
+                Some("get_configuration_stalled_no_host_interfaces")
+            );
+            assert!(trace.interface_claimed);
+        }
+    }
+
+    #[test]
+    fn stall_does_not_override_active_host_interfaces_or_ambiguous_descriptors() {
+        for case in 0..5 {
+            let (io, mut trace) = stalled_fixture(&["NotFound"], Ok(1));
+            match case {
+                0 => trace.enumerated_interfaces.push(0),
+                1 => trace.cached_configuration = Some(1),
+                2 => {
+                    trace.cached_configuration_error =
+                        Some("no descriptor found for active configuration 2".into())
+                }
+                3 => trace.configurations.push(Configuration {
+                    value: 2,
+                    interfaces: vec![],
+                }),
+                _ => trace.configurations[0].interfaces[0].endpoints.clear(),
+            }
+            assert!(claim_with(&io, true, &mut trace, |_| {}).is_err());
+            assert!(io.selected.borrow().is_empty());
+        }
+    }
+
+    #[test]
+    fn compatibility_selection_does_not_repeat_when_interface_stays_absent() {
+        let (io, mut trace) = stalled_fixture(&["NotFound"], Err(ConfigurationReadError::Stall));
+        assert!(claim_with(&io, true, &mut trace, |_| {}).is_err());
+        assert_eq!(*io.selected.borrow(), vec![1]);
+        assert!(!trace.interface_claimed);
+        assert_eq!(trace.claim_attempts.len(), (CLAIM_ATTEMPTS + 1) as usize);
+    }
+
+    #[test]
+    fn compatibility_readback_error_or_mismatch_does_not_accept_interface() {
+        for readback in [
+            Ok(0),
+            Ok(2),
+            Err(ConfigurationReadError::Failed("disconnected".into())),
+        ] {
+            let (io, mut trace) = stalled_fixture(&["NotFound", "ok"], readback);
+            assert!(claim_with(&io, true, &mut trace, |_| {}).is_err());
+            assert_eq!(*io.selected.borrow(), vec![1]);
+            assert!(!trace.interface_claimed);
+        }
+    }
+
+    #[test]
+    fn stalled_query_never_configures_an_out_of_scope_device() {
+        let (io, mut trace) = stalled_fixture(&["NotFound"], Ok(1));
+        assert!(claim_with(&io, false, &mut trace, |_| {}).is_err());
+        assert!(io.selected.borrow().is_empty());
+    }
+
+    #[test]
+    fn other_configuration_failures_never_use_the_stall_fallback() {
+        for message in [
+            "timeout",
+            "disconnected",
+            "short reply",
+            "unsupported OS argument",
+        ] {
+            let (io, mut trace) = stalled_fixture(&["NotFound"], Ok(1));
+            io.values.borrow_mut()[0] = Err(ConfigurationReadError::Failed(message.into()));
+            assert!(claim_with(&io, true, &mut trace, |_| {}).is_err());
+            assert!(io.selected.borrow().is_empty());
+        }
     }
 }

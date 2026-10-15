@@ -64,8 +64,8 @@ const SHORT_TIMEOUT: Duration = Duration::from_millis(5_000);
 /// 1800x the observed worst case.
 const SLOW_READ_TIMEOUT: Duration = Duration::from_millis(360_000);
 
-/// Interface-claim retry: allow transient macOS enumeration delays without
-/// changing USB configuration or retrying a command that reached the device.
+/// Bounded interface-publication wait. Scoped configuration initialization may
+/// precede a fresh wait; a command accepted by the device is never replayed.
 const CLAIM_ATTEMPTS: u32 = 5;
 const CLAIM_RETRY_DELAY: Duration = Duration::from_millis(200);
 

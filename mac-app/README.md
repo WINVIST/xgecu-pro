@@ -150,11 +150,15 @@ Save a report for each connection/profile, unplugging and reconnecting before
 each test. This does not enable SuperSpeed programming.
 See [USB3 evidence and next steps](../docs/ch569-usb3-notes.md).
 
-Build 7 handles a missing initial configuration on macOS T76: if interface 0
-is absent and a real GET_CONFIGURATION returns zero, the app selects the unique
-declared configuration with the T76 command endpoints and retries the claim.
-Already-configured devices are preserved. USB Diagnostics now includes the
-pre-claim configuration/descriptor evidence even when the interface cannot open.
+On macOS T76, an absent interface plus a real GET_CONFIGURATION value of zero
+permits selecting the unique declared configuration. Build 8 additionally handles
+the measured GET_CONFIGURATION STALL: when the OS has no interfaces/no active
+configuration descriptor and exactly one valid configuration is declared, select
+it once through macOS, then verify the actual interface and command exchange.
+The prior device state stays unknown on STALL; selection can reset USB endpoint
+state. This compatibility path runs during connection, before any chip session.
+Working interfaces, measured nonzero configuration, timeout and disconnect do
+not trigger it. USB Diagnostics records the reason, claim result and readback.
 
 Connect the T76 and click **Connect / Refresh**. High Speed supports the
 existing workflow; SuperSpeed is currently available for read validation.

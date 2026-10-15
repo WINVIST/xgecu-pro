@@ -71,6 +71,37 @@ If configured state is nonzero but no interface appears, the report exposes
 that mismatch instead of trying a reset or same-configuration reselect.
 Hardware verification of this conditional recovery remains pending.
 
+### Build 8: rejected GET_CONFIGURATION
+
+The build 7 report at 2026-10-15T17:29:24Z confirms BOS reads work, a single
+configuration value 1 describes interface 0/alternate 0 and fourteen bulk
+endpoints (1024-byte packets), but no host interfaces exist. The cached state
+says unconfigured. Actual GET_CONFIGURATION returns protocol STALL. Consequently
+build 7 never attempted selection; `selected_configuration` is null. This still
+does not establish the device's actual configuration or a bulk-transfer fault.
+
+[Released libusb 1.0.30's Darwin claim path](https://github.com/libusb/libusb/blob/v1.0.30/libusb/os/darwin_usb.c#L1855)
+sets the first configuration when no interface exists, without requiring a
+successful GET_CONFIGURATION. Build 8 implements a narrower compatibility path:
+only macOS T76, NotFound claim, no enumerated interfaces, no cached active
+configuration, exactly one declared configuration with the command endpoint
+pair, and specifically a typed control STALL. Select once through the OS API.
+Timeout, short response, disconnect, permission, other active interfaces,
+measured nonzero state and ambiguous descriptors do not permit this fallback.
+
+A repeat GET_CONFIGURATION STALL after selection is recorded, while an actual
+interface claim, command endpoints and system-info responses validate whether
+communication works. Different readback values or other readback failures stop
+the attempt. No additional set/reset is attempted. Reports include the selection
+reason, readback error and `interface_claimed`. Prior state remains unknown:
+selection might actually reselect configuration 1 and reset endpoint state. This
+is a connection-time compatibility attempt, not a guaranteed zero-to-one change
+or proof that the hardware issue is fixed. Chip programming stays guarded.
+
+No raw CLEAR_FEATURE(HALT) is sent to EP0. A protocol control STALL is cleared
+by the next request as described in
+[nusb's transfer contract](https://github.com/kevinmehall/nusb/blob/v0.2.7/src/transfer/mod.rs#L27-L33).
+
 The normal transport maps an unavailable speed to High. The diagnostic records
 the OS-reported speed independently, leaving it null when unavailable.
 
