@@ -60,7 +60,7 @@ struct USBDiagnosticSummary {
             && error == nil && restoreError == nil
         device = found ? .passed : (error == nil ? .notRun : .failed)
         interface = claimed ? .passed : (found ? .failed : .notRun)
-        exchange = passed ? .passed : (claimed ? .failed : .notRun)
+        exchange = complete && claimed ? .passed : (claimed ? .failed : .notRun)
 
         if passed {
             title = "USB connection test passed"

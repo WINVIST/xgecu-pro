@@ -25,7 +25,10 @@ final class USBDiagnosticSummaryTests: XCTestCase {
         XCTAssertFalse(USBDiagnosticSummary(report: failed).passed)
         failed = report
         failed["restore_error"] = "control stalled"
-        XCTAssertEqual(USBDiagnosticSummary(report: failed).title, "USB settings could not be restored")
+        let unrestored = USBDiagnosticSummary(report: failed)
+        XCTAssertEqual(unrestored.title, "USB settings could not be restored")
+        XCTAssertFalse(unrestored.passed)
+        XCTAssertEqual(unrestored.exchange, .passed)
     }
 
     func testNoDeviceMultipleDevicesAndMissingInterfaceHaveDifferentAdvice() {
