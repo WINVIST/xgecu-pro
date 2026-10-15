@@ -143,14 +143,7 @@ impl UsbTransport {
     /// later by `detect` from the system-info byte — all of T48/T56/TL866II+
     /// share one USB id, so there is nothing to choose between here.
     pub fn open_any() -> Result<Self> {
-        let mut last: Option<Error> = None;
-        for &(vid, pid) in KNOWN_IDS {
-            match Self::open(vid, pid) {
-                Ok(tx) => return Ok(tx),
-                Err(e) => last = Some(e),
-            }
-        }
-        Err(no_device_error(last))
+        open_first_present(Self::open)
     }
 
     /// Get (claiming and caching on first use) a bulk OUT endpoint.
@@ -498,6 +491,21 @@ fn no_device_error(last: Option<Error>) -> Error {
     }
 }
 
+/// Probe absent IDs, but preserve an error from a present programmer. Otherwise
+/// a T76 claim failure was overwritten by "no TL866/T48/T56 found", hiding the
+/// actual fault and potentially falling through to a different physical unit.
+fn open_first_present<T>(mut open: impl FnMut(u16, u16) -> Result<T>) -> Result<T> {
+    let mut last = None;
+    for &(vid, pid) in KNOWN_IDS {
+        match open(vid, pid) {
+            Ok(tx) => return Ok(tx),
+            Err(e) if e.to_string().contains("no programmer found") => last = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(no_device_error(last))
+}
+
 /// Enumerate, open and claim interface 0 of `vid:pid`,
 /// choosing between multiple attached units per `sel`. Also returns the chosen
 /// unit's USB serial, so a later reset can insist on the same one.
@@ -828,6 +836,29 @@ mod tests {
         let msg = none.to_string();
         assert!(msg.contains("no known programmer connected"));
         assert!(msg.contains("a466:1a86") && msg.contains("a466:0a53"));
+    }
+
+    #[test]
+    fn present_t76_claim_error_is_not_hidden_by_later_absent_ids() {
+        let mut attempts = 0;
+        let result = open_first_present::<()>(|_, _| {
+            attempts += 1;
+            Err(Error::Usb("claim interface 0: interface not found".into()))
+        });
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("claim interface 0"));
+        assert_eq!(attempts, 1);
+
+        let result = open_first_present(|_, pid| {
+            if pid == T76_PID {
+                Err(Error::Usb("no programmer found".into()))
+            } else {
+                Ok(pid)
+            }
+        });
+        assert_eq!(result.unwrap(), TL866II_PID);
     }
 
     #[test]
