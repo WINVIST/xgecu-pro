@@ -301,6 +301,9 @@ private struct ProgrammingWorkspace: View {
         if !model.isT76 { return "Connect the T76 to enable programming." }
         if model.selectedChip.isEmpty { return "Select the exact chip in the sidebar." }
         if model.chipDetails == nil { return "Wait for the chip details to load." }
+        if model.usb3ReadValidation {
+            return "USB 3 read validation: use Read and Save or Verify Against File below. Programming currently requires USB 2."
+        }
         if !model.canWriteSelected { return "Programming needs a database electronic ID and a code region of 1 byte to 2 GiB." }
         if model.programmingFile == nil { return "Choose the firmware file to program." }
         return "Ready for preflight. The chip ID and image are checked before confirmation."
