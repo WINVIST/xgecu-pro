@@ -39,6 +39,38 @@ The second report (11:49:01Z), device U1/U2 profile, failed claiming interface 0
 not evidence that changing U1/U2 failed, nor does it prove why the interface
 was absent. No chip read, programming or repeated cold-connect result is supplied yet.
 
+Build 6 baseline at 2026-10-15T13:00:52Z and ordinary Connect both failed with
+`claim interface 0: interface not found`; RUN reportedly blinked rapidly. The
+device still enumerated as Super. No chip or bulk probe ran. This reproduces the
+interface-publication failure independently of the optional U1/U2 experiment.
+
+### Build 7: conditional initial configuration
+
+[Apple's USB guide](https://developer.apple.com/library/archive/documentation/DeviceDrivers/Conceptual/USBBook/USBDeviceInterfaces/USBDevInterfaces.html)
+explains that vendor-specific devices can remain unconfigured until the app
+selects a declared configuration, which creates the interface objects. nusb's
+macOS claim path only searches existing interface objects. Its cached active
+configuration is not definitive: failed configuration queries can become cached
+zero. These facts make missing initial configuration a candidate; the user's
+build 6 report did not measure it and cannot establish that cause.
+
+Build 7 first tries the ordinary claim. Only on macOS T76, after a NotFound
+claim, it reads standard GET_CONFIGURATION from the device (80/08/0000/0000,
+length 1). If the response is exactly one byte zero, it selects the unique
+declared nonzero configuration containing interface 0, alternate 0 and bulk
+01/81. Selection uses nusb's OS API so macOS can publish its interfaces.
+The value is read back and claim gets a fresh bounded retry window. There is
+one selection attempt, no bus reset, no unconfigure request, and no bulk replay.
+Busy, permission, unknown state, nonzero state and ambiguous descriptors never
+trigger selection. Other platforms/models retain their claim behavior.
+
+Diagnostics now collect BOS and configuration/endpoint descriptors before claim.
+The `opening` report records enumerated interface numbers, cached state, actual
+device state, selection/readback, typed claim-error categories and OS codes.
+If configured state is nonzero but no interface appears, the report exposes
+that mismatch instead of trying a reset or same-configuration reselect.
+Hardware verification of this conditional recovery remains pending.
+
 The normal transport maps an unavailable speed to High. The diagnostic records
 the OS-reported speed independently, leaving it null when unavailable.
 

@@ -32,6 +32,7 @@ pub struct Report {
     /// This is not a chip read/write validation or permission to bypass guards.
     pub passed: bool,
     pub link: Option<String>,
+    pub opening: OpenReport,
     pub status_before: Option<u16>,
     pub status_during: Option<u16>,
     pub status_restored: Option<u16>,
@@ -60,6 +61,7 @@ pub fn diagnose_t76(profile: Profile) -> Report {
         profile: profile.name(),
         passed: false,
         link: None,
+        opening: OpenReport::default(),
         status_before: None,
         status_during: None,
         status_restored: None,
@@ -103,7 +105,23 @@ fn diagnose(profile: Profile, report: &mut Report) -> Result<()> {
     }
     // Sole also checks the second enumeration. No serial is embedded in errors
     // or the exported report; this path performs no chip operation.
-    let (device, interface, link, serial) = open_device(T76_VID, T76_PID, Select::Sole)?;
+    let (device, link, serial) =
+        open_device_handle(T76_VID, T76_PID, Select::Sole, &mut report.opening)?;
+    // EP0 and cached descriptors are available before interface 0. Keep this
+    // evidence even when IOKit has no interface object to claim.
+    match device.get_descriptor(15, 0, 0, SHORT_TIMEOUT).wait() {
+        Ok(bytes) => report.bos_hex = Some(bytes.iter().map(|b| format!("{b:02x}")).collect()),
+        Err(e) => report.notes.push(format!("BOS read unavailable: {e}")),
+    }
+    match opening::read_configuration(&device) {
+        Ok(value) => report.opening.device_configuration_before = Some(value),
+        Err(e) => report.opening.configuration_read_error = Some(e.to_string()),
+    }
+    let interface = opening::claim(
+        &device,
+        may_configure_t76(T76_VID, T76_PID),
+        &mut report.opening,
+    )?;
     let mut tx = UsbTransport {
         device,
         interface: Some(interface),
@@ -116,10 +134,6 @@ fn diagnose(profile: Profile, report: &mut Report) -> Result<()> {
     };
     report.command_out_packet_size = Some(tx.out_ep(EP_CMD_OUT)?.max_packet_size());
     report.command_in_packet_size = Some(tx.in_ep(EP_CMD_IN)?.max_packet_size());
-    match tx.device.get_descriptor(15, 0, 0, SHORT_TIMEOUT).wait() {
-        Ok(bytes) => report.bos_hex = Some(bytes.iter().map(|b| format!("{b:02x}")).collect()),
-        Err(e) => report.notes.push(format!("BOS read unavailable: {e}")),
-    }
     match tx.status() {
         Ok(status) => report.status_before = Some(status),
         Err(e) if profile == Profile::Baseline => report.notes.push(e.to_string()),
@@ -328,6 +342,7 @@ mod tests {
             profile: "test",
             passed: false,
             link: None,
+            opening: OpenReport::default(),
             status_before: Some(U1 | U2),
             status_during: None,
             status_restored: None,

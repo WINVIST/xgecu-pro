@@ -150,6 +150,12 @@ Save a report for each connection/profile, unplugging and reconnecting before
 each test. This does not enable SuperSpeed programming.
 See [USB3 evidence and next steps](../docs/ch569-usb3-notes.md).
 
+Build 7 handles a missing initial configuration on macOS T76: if interface 0
+is absent and a real GET_CONFIGURATION returns zero, the app selects the unique
+declared configuration with the T76 command endpoints and retries the claim.
+Already-configured devices are preserved. USB Diagnostics now includes the
+pre-claim configuration/descriptor evidence even when the interface cannot open.
+
 Connect the T76 and click **Connect / Refresh**. High Speed supports the
 existing workflow; SuperSpeed is currently available for read validation.
 For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.

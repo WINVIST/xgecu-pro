@@ -17,6 +17,8 @@
 #![forbid(unsafe_code)]
 
 pub mod diagnostic;
+mod opening;
+pub use opening::OpenReport;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -514,6 +516,24 @@ fn open_device(
     pid: u16,
     sel: Select<'_>,
 ) -> Result<(nusb::Device, nusb::Interface, LinkSpeed, Option<String>)> {
+    let mut report = OpenReport::default();
+    let (device, link, serial) = open_device_handle(vid, pid, sel, &mut report)?;
+    let interface = opening::claim(&device, may_configure_t76(vid, pid), &mut report)?;
+    Ok((device, interface, link, serial))
+}
+
+fn may_configure_t76(vid: u16, pid: u16) -> bool {
+    cfg!(target_os = "macos") && vid == T76_VID && pid == T76_PID
+}
+
+/// Open the device before claiming an interface so failed claims still have
+/// useful EP0/descriptor diagnostics. No USB serial is included in the report.
+fn open_device_handle(
+    vid: u16,
+    pid: u16,
+    sel: Select<'_>,
+    report: &mut OpenReport,
+) -> Result<(nusb::Device, LinkSpeed, Option<String>)> {
     let devices = nusb::list_devices()
         .wait()
         .map_err(|e| Error::Usb(format!("enumerate: {e}")))?;
@@ -549,36 +569,14 @@ fn open_device(
     };
     let serial = info.serial_number().map(|s| s.to_string());
     let link = link_speed_from(info.speed());
+    report.enumerated_interfaces = info.interfaces().map(|i| i.interface_number()).collect();
     let device = info
         .open()
         .wait()
         .map_err(|e| Error::Usb(format!("open {vid:04x}:{pid:04x}: {e}")))?;
 
-    // Preserve the host's configuration. A real T76 on M3 Pro + macOS 26.7.1
-    // answered all four SuperSpeed system-info probes through Wavlink without
-    // a configuration cycle. The old 0->1 cycle was never a repeatable fix and
-    // could wedge the High Speed path after a session. See ch569-usb3-notes.md.
-    // Only retry claiming the interface; never retry an accepted USB command.
-    let mut interface = None;
-    let mut last_err = None;
-    for attempt in 0..CLAIM_ATTEMPTS {
-        if attempt > 0 {
-            std::thread::sleep(CLAIM_RETRY_DELAY);
-        }
-        match device.claim_interface(0).wait() {
-            Ok(iface) => {
-                interface = Some(iface);
-                break;
-            }
-            Err(e) => last_err = Some(e),
-        }
-    }
-    let interface = interface.ok_or_else(|| {
-        let detail = last_err.map(|e| e.to_string()).unwrap_or_default();
-        Error::Usb(format!("claim interface 0: {detail}; disconnect the T76, wait for it to disappear, then reconnect and refresh"))
-    })?;
-
-    Ok((device, interface, link, serial))
+    opening::describe(&device, report);
+    Ok((device, link, serial))
 }
 
 /// Map nusb's negotiated speed onto the trait's three-way [`LinkSpeed`].
