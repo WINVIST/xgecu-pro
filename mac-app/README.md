@@ -157,7 +157,11 @@ confirmation identifies both the chip and firmware file. Cancel is the
 default confirmation choice, so Return does not commit programming or erase.
 Use **Read, compare or erase the chip** for the secondary operations,
 including **Read and Save…**. The separate
-**Check ID** action rechecks the selected chip's ID. **Blank Check** compares
+**Check Setup** action rechecks the selected chip's ID and reports actual
+socket contact-test availability. The T76 backend disables its legacy pin-test
+command because hardware investigation found stale results and corruption of
+subsequent reads. An ID match does not certify every contact or adapter
+placement. **Blank Check** compares
 the entire code region with the
 chip's erased value. Selecting a chip also shows its database package, pin
 count, memory region sizes, page size, expected electronic ID, and erased value
@@ -172,10 +176,13 @@ unstable result and opens the saved dump in a paged hex buffer. The buffer can
 also open local raw, Intel HEX, and Motorola S-record files, jump to a hex
 address, find a byte sequence, and fill an inclusive address range with one
 byte. Address gaps in HEX and S-record files are filled with `0xFF`. The image
-buffer, verification, and programming limit is 256 MiB; text image inputs are
-limited to 256 MiB on disk. Larger code regions up to 2 GiB can be read to a
-raw file with a second-pass stability check. Their dumps are not opened in
-the hex buffer. **Save As…**
+buffer, conversion, verification, and programming support decoded images up
+to 2 GiB; text inputs are limited to 8 GiB on disk. Reads also stream to a
+private file and check a second full hardware pass before atomic publication.
+The hex editor keeps a private disk-backed copy, loads only the current page,
+and performs hashing, search, edits and comparison off the UI actor. Undo/redo
+snapshots live on disk, with up to 128 edits and a 4 GiB history budget. Large
+fills and copies need temporary disk space. **Save As…**
 chooses raw, Intel HEX, or S-record output from the file extension. Save
 edited buffers with **Save As…** before choosing a file to program; the
 **Program and Verify…** action programs the file displayed in the Firmware
@@ -195,8 +202,8 @@ read or open.
 
 The GUI uses the entire selected database, without a hardcoded chip allowlist.
 Read, ID check, and blank check are offered for entries with a nonempty
-code region up to the 2 GiB streamed read limit. Verify is offered up to
-256 MiB. Program is offered up to 256 MiB when
+code region up to the 2 GiB streamed image limit. Verify uses the same bound.
+Program is offered up to 2 GiB when
 the entry also has an electronic ID; Erase additionally requires the database
 to mark the part electrically erasable. The backend can still refuse an
 unsupported chip family or algorithm. These controls are **not** a claim that
@@ -210,6 +217,9 @@ Short programming images are padded to chip capacity with the part's erased
 byte, as stated in the confirmation dialog.
 The backend checks the chip ID before erase or protect changes; the GUI also
 requires a connected T76 and an ID for mutations.
+Quit is deferred while an operation is running. Unsaved Hex Editor edits
+require an explicit Quit and Discard choice; Cancel is the default so edits
+can be saved first.
 Save a dump before changing a chip. Do not disconnect the programmer during
 an active operation.
 
@@ -235,8 +245,10 @@ For MX66L1G45G, **Read and Save…** saves the 128 MiB code region; its separate
 data region is outside the current GUI read workflow.
 See the [hardware acceptance plan](ROADMAP.md#user-requested-hardware-support).
 
-NAND, eMMC, firmware update, and other experimental chip classes remain
-available only through the original CLI. The app performs one operation at a
+Code-region operations use the selected database entry, including large NAND
+or eMMC entries where the backend supports them. Size support does not validate
+their algorithms or adapter wiring. Firmware update, fuse/config and partition
+selection remain CLI/backend concerns. The app performs one operation at a
 time and does not terminate an in-progress write or erase.
 
 ## Verification

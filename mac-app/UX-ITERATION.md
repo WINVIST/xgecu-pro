@@ -64,4 +64,18 @@ On the target Mac, review:
 6. Check compact/resized windows, light/dark appearance, keyboard-only use,
    VoiceOver labels, long part names and file paths, and errors.
 
-Catalog/favorites and streaming image changes follow review of this iteration.
+The user authorized continuing the primary roadmap. Catalog/favorites and
+file-backed streaming are now implemented; UI fixtures also cover catalog
+filtering and favorites. Check Setup rechecks chip identity without mutation
+and reports unavailable contact diagnostics explicitly. The T76 backend does
+not expose its untrustworthy legacy contact-test opcode.
+
+Large file operations run outside the UI actor with a visible busy stage.
+The editor preserves the source file, bounded page reads, overlapping-copy
+snapshots, disk-backed undo/redo, and byte-for-byte file comparison. CI
+measures the converter and editor separately on a 1,140,850,688-byte image;
+both must remain below 128 MiB maximum resident memory.
+
+Quit waits until an active operation finishes and asks before discarding
+unsaved edits. The discard alert defaults to Cancel. On the target Mac, check
+Command-Q during a read/write and while the Hex Editor has unsaved edits.

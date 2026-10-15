@@ -1,14 +1,17 @@
+import AppKit
 import SwiftUI
 
 #if !UI_PREVIEW
 @main
 struct XGecuProApp: App {
+    @NSApplicationDelegateAdaptor(AppExitDelegate.self) private var exitDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {
         WindowGroup("XGecu Pro") {
             ContentView(model: model)
                 .frame(minWidth: 1020, minHeight: 680)
+                .onAppear { exitDelegate.model = model }
         }
         .defaultSize(width: 1180, height: 820)
         .commands {
@@ -31,6 +34,33 @@ struct XGecuProApp: App {
     }
 }
 #endif
+
+@MainActor
+final class AppExitDelegate: NSObject, NSApplicationDelegate {
+    weak var model: AppModel?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model else { return .terminateNow }
+        if model.busy {
+            let alert = NSAlert()
+            alert.messageText = "An operation is still running"
+            alert.informativeText = "Wait for \(model.currentStage ?? "the current operation") to finish before quitting."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return .terminateCancel
+        }
+        guard model.bufferDirty else { return .terminateNow }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "The Hex Editor has unsaved changes"
+        alert.informativeText = "Quitting will discard them. Choose Cancel, then Save Hex Buffer As to keep your edits."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Quit and Discard")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = ""
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+    }
+}
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
@@ -230,8 +260,12 @@ private struct ProgrammingWorkspace: View {
                                 }
                             }
                             Spacer()
-                            Button("Check ID") { model.detect() }.disabled(model.busy || !model.canReadSelected)
-                                .help("Read the chip ID using the selected chip's algorithm.")
+                            Button("Check Setup") { model.checkSetup() }.disabled(model.busy || !model.canReadSelected)
+                                .help("Check chip identity and report available contact diagnostics without changing chip contents.")
+                        }
+                        if let status = model.setupStatus {
+                            Label(status, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                                .textSelection(.enabled)
                         }
                         if let chip = model.chipDetails, chip.name == model.selectedChip {
                             DisclosureGroup("Database details", isExpanded: $showChipDetails) {

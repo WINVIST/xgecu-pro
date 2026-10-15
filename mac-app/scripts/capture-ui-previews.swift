@@ -25,6 +25,8 @@ struct CaptureUIPreviews {
             ("07-chip-lookup", false, 0, NSSize(width: 1020, height: 680)),
             ("08-catalog-favorites", false, 0, NSSize(width: 1180, height: 820)),
             ("09-catalog-filter-dark", true, 0, NSSize(width: 1020, height: 680)),
+            ("10-setup-check", false, 0, NSSize(width: 1020, height: 680)),
+            ("11-large-hex-buffer", true, 1, NSSize(width: 1180, height: 820)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
@@ -103,14 +105,19 @@ struct CaptureUIPreviews {
             model.status = "Running: write…"
         } else if name == "04-error-compact" {
             model.status = "Error: The chip ID does not match the selected part. Check the marking and adapter placement before trying again."
-        } else if name == "06-hex-editor" {
-            model.bufferSize = 256
+        } else if name == "10-setup-check" {
+            model.setupStatus = "Chip ID matches the selected entry. Contact self-test is unavailable on this programmer. Check the chip and adapter seating."
+            model.status = model.setupStatus ?? "Setup checked."
+        } else if name == "06-hex-editor" || name == "11-large-hex-buffer" {
+            model.bufferSize = name == "11-large-hex-buffer" ? 1_140_850_688 : 256
+            model.bufferOffset = name == "11-large-hex-buffer" ? model.bufferSize - 256 : 0
+            model.addressText = String(model.bufferOffset, radix: 16).uppercased()
             model.bufferDirty = true
             model.lastFile = URL(fileURLWithPath: "/Users/example/Firmware/original-dump.bin")
             model.bufferSHA256 = String(repeating: "0123456789abcdef", count: 4)
             var lines: [String] = []
             for row in 0..<16 {
-                let address = String(format: "%08X", row * 16)
+                let address = String(format: "%08X", model.bufferOffset + row * 16)
                 var bytes: [String] = []
                 for column in 0..<16 {
                     bytes.append(String(format: "%02X", row * 16 + column))

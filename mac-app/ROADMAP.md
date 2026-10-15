@@ -27,10 +27,14 @@ choose a firmware binary, and program it with readback verification.
   full catalog and favorites, then file-backed buffers and streaming.
 
 The user authorized continuing the complete primary roadmap on 2026-10-15.
-Catalog and favorites are now implemented in source: complete database
+Catalog and favorites are implemented and verified on macOS CI: complete database
 browsing, live name/package filtering, persisted favorites at the top of
-the picker, and metadata lookup before chip operations. The next primary
-item is file-backed buffers and streamed verification/programming.
+the picker, and metadata lookup before chip operations. File-backed buffers
+and streamed conversion, read, verification and programming are also
+implemented and macOS CI-verified. The editor's catalog-size check exercises
+1,140,850,688 bytes, including paging, edit/undo, SHA-256 and file comparison.
+A read-only Check Setup tool also reports chip ID and actual contact-test
+availability. Per-family physical acceptance remains separate.
 
 See [the usability iteration](UX-ITERATION.md) for the design rationale and
 target-Mac review checklist.
@@ -111,7 +115,7 @@ the recorded results with the original dumps.
 
 ## 3. Additional tools already in source
 
-- Implemented in source: paged full-image hex buffer (256 MiB limit), file
+- Implemented in source: file-backed paged hex buffer (2 GiB decoded limit), file
   open/save for raw, Intel HEX, and S-record images, address jump, HEX and ASCII
   search, per-byte editing, range fill,
   block copy/export, undo/redo, SHA-256, and offline byte-for-byte file
@@ -121,12 +125,12 @@ the recorded results with the original dumps.
 
 ## 4. Requested after basic hardware acceptance
 
-- Add a browsable catalog of the entire available chip database. Let the user
+- Implemented and CI-verified: a browsable catalog of the entire available chip database. Let the user
   mark frequently used entries as favorites; show favorites at the top of the
   chip picker and when the search field opens. Keep search across the full
   database and distinguish favorites from hardware-validated read/write
   support. Do this after the target-Mac detect and read flow is accepted.
-- Replace the in-memory image buffer with a file-backed, paged buffer, and add
+- Implemented and CI-verified: replace the in-memory image buffer with a file-backed, paged buffer, and add
   streamed verification and programming for chips larger than 256 MiB. Raw
   reads up to 2 GiB already stream to a file and compare a second hardware
   read without loading the full image into RAM. The pinned

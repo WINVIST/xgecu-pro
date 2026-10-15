@@ -18,7 +18,10 @@ final class AppModel: ObservableObject {
     @Published var hasSearched = false
     @Published var catalog: ChipCatalog?
     @Published var favoriteChips = FavoriteChipStore().load()
-    @Published var selectedChip = ""
+    @Published var selectedChip = "" {
+        didSet { if selectedChip != oldValue { setupStatus = nil } }
+    }
+    @Published var setupStatus: String?
     @Published var chipDetails: ChipDetails?
     @Published var deviceStatus = "Programmer not checked"
     @Published var status = "Connect the T76 with the supplied USB cable, then click Connect / Refresh."
@@ -107,6 +110,8 @@ final class AppModel: ObservableObject {
     }
 
     func connect() {
+        guard !busy else { return }
+        setupStatus = nil
         // A failed refresh must not leave controls enabled for a device that
         // may have been unplugged or replaced since the last successful check.
         isT76 = false
@@ -231,6 +236,26 @@ final class AppModel: ObservableObject {
             let id = result["id"] as? String ?? "?"
             let matches = result["matches"] as? [String] ?? []
             self?.status = "ID: 0x\(id). Matches: \(matches.prefix(4).joined(separator: ", "))."
+        }
+    }
+
+    func checkSetup() {
+        guard readyForChipOperation else { return }
+        setupStatus = nil
+        perform(["check", selectedChip]) { [weak self] result in
+            guard let self else { return }
+            let identity = result["chip_id_checked"] as? Bool == true
+                ? "Chip ID matches the selected entry."
+                : "This entry has no electronic ID; identity must be checked from the marking."
+            let contacts: String
+            if result["pins_checked"] as? Bool == true, let open = result["open_pins"] as? [Int] {
+                contacts = open.isEmpty ? "Socket contact test passed."
+                    : "Open contacts: \(open.map(String.init).joined(separator: ", ")). Check seating and adapter contacts."
+            } else {
+                contacts = "Contact self-test is unavailable on this programmer. Check the chip and adapter seating."
+            }
+            self.setupStatus = "Last setup check: " + identity + " " + contacts
+            self.status = self.setupStatus ?? identity
         }
     }
 
@@ -673,7 +698,7 @@ final class AppModel: ObservableObject {
         progress = nil
         currentStage = "Starting \(operation)…"
         status = "Running: \(operation)…"
-        let chipCommands: Set<String> = ["read", "write", "erase", "blank", "verify", "detect", "describe"]
+        let chipCommands: Set<String> = ["read", "write", "erase", "blank", "verify", "detect", "describe", "check"]
         let target = chipCommands.contains(operation) && !selectedChip.isEmpty ? " for \(selectedChip)" : ""
         appendLog("Started \(operation)\(target).")
         runner.run(arguments, databasePath: selectedDatabase ?? databasePath, onEvent: { [weak self] event in
@@ -770,6 +795,8 @@ final class AppModel: ObservableObject {
             let file = directory.appendingPathComponent("program.\(suffix)")
             let input = try FileHandle(forReadingFrom: source)
             defer { try? input.close() }
+            let raw = ["bin", "rom", "raw"].contains(source.pathExtension.lowercased())
+            let limit = (raw ? 2 : 8) * 1024 * 1024 * 1024
             guard FileManager.default.createFile(atPath: file.path, contents: nil,
                                                  attributes: [.posixPermissions: 0o600]) else {
                 throw MiniProFailure(message: "Could not create a private image snapshot.", hint: nil)
@@ -778,8 +805,8 @@ final class AppModel: ObservableObject {
             defer { try? output.close() }
             var copied = 0
             while let chunk = try input.read(upToCount: 64 * 1024), !chunk.isEmpty {
-                guard chunk.count <= (8 * 1024 * 1024 * 1024) - copied else {
-                    throw MiniProFailure(message: "The image exceeds the 8 GiB text input limit.", hint: nil)
+                guard chunk.count <= limit - copied else {
+                    throw MiniProFailure(message: raw ? "The raw image exceeds the 2 GiB image limit." : "The image exceeds the 8 GiB text input limit.", hint: nil)
                 }
                 try output.write(contentsOf: chunk)
                 copied += chunk.count

@@ -173,6 +173,11 @@ enum Command {
     },
     /// Show programmer identity and firmware status
     Info,
+    /// Check chip identity and supported socket diagnostics without mutation
+    Check {
+        /// Exact selected chip name
+        chip: String,
+    },
     /// Search the chip database (capped and counted)
     Search {
         /// Substring to match against device names
@@ -246,6 +251,7 @@ impl Command {
             Command::Blank { .. } => "blank",
             Command::Verify { .. } => "verify",
             Command::Info => "info",
+            Command::Check { .. } => "check",
             Command::Search { .. } => "search",
             Command::Describe { .. } => "describe",
             Command::Convert { .. } => "convert",
@@ -438,6 +444,7 @@ fn main() -> ExitCode {
             &mut *reporter_for(mode),
         ),
         Command::Info => run_info(db_dir, &mut *reporter_for(mode)),
+        Command::Check { chip } => run_check(db_dir, chip, mode),
         Command::Detect { like } => run_detect(db_dir, like, mode),
         Command::Logic { chip } => run_logic(db_dir, chip, mode),
         Command::Update { file, confirm } => run_update(file, *confirm, &mut *reporter_for(mode)),
@@ -957,6 +964,75 @@ fn run_blank(db_dir: Option<&Path>, chip: &str, rep: &mut dyn Reporter) -> Resul
         blank,
     });
     Ok(())
+}
+
+fn run_check(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
+    let mut rep = reporter_for(mode);
+    rep.event(&Event::Stage("Loading chip database".into()));
+    let db = load_db(db_dir, rep.as_mut())?;
+    let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
+    rep.event(&Event::Stage("Connecting to programmer".into()));
+    let mut prog = open_programmer()?;
+    warn_firmware(&*prog, &*db, rep.as_mut());
+    let result = check_setup_with_programmer(&mut *prog, &dev, rep.as_mut())?;
+    if mode == Mode::Json {
+        println!("{result}");
+    } else {
+        anstream::println!(
+            "{}: {}",
+            dev.name,
+            if dev.chip_id_bytes > 0 {
+                "chip ID matches"
+            } else {
+                "no electronic ID specified"
+            }
+        );
+        if result["pins_checked"] == true {
+            anstream::println!("Open contacts: {}", result["open_pins"]);
+        } else {
+            anstream::println!("Socket contact test unavailable for this programmer.");
+        }
+    }
+    Ok(())
+}
+
+fn check_setup_with_programmer(
+    prog: &mut dyn Programmer,
+    dev: &minipro_core::device::Device,
+    rep: &mut dyn Reporter,
+) -> Result<serde_json::Value> {
+    let model = prog.info().model.clone();
+    let link = match prog.info().link {
+        minipro_core::transport::LinkSpeed::Full => "fs",
+        minipro_core::transport::LinkSpeed::High => "hs",
+        minipro_core::transport::LinkSpeed::Super => "ss",
+        _ => "unknown",
+    };
+    let pins_available = prog
+        .caps()
+        .contains(minipro_core::programmer::Caps::PINTEST);
+    let open = {
+        let mut txn = Txn::begin(prog, dev)?;
+        let (p, s) = txn.parts();
+        rep.event(&Event::Stage("Checking selected chip ID".into()));
+        check_chip_id(p, s, dev, false, rep)?;
+        // Honor advertised capabilities. The T76 deliberately does not expose
+        // PINTEST: its legacy opcode returned stale data and corrupted reads.
+        if pins_available {
+            rep.event(&Event::Stage("Checking socket contacts".into()));
+            Some(
+                p.pins()
+                    .ok_or(Error::Unsupported("socket contact test"))?
+                    .contact_check(s)?,
+            )
+        } else {
+            None
+        }
+    }; // Always de-energize, including ID/test errors. No erase/protect/write.
+    Ok(serde_json::json!({
+        "op": "check", "ok": true, "device": dev.name, "programmer": model, "link": link,
+        "chip_id_checked": dev.chip_id_bytes > 0, "pins_checked": open.is_some(), "open_pins": open,
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2027,6 +2103,7 @@ mod tests {
             info: ProgrammerInfo,
             observed_id: u32,
             actions: Vec<&'static str>,
+            open_pins: Option<Vec<u8>>,
         }
         impl Programmer for Fake {
             fn info(&self) -> &ProgrammerInfo {
@@ -2034,6 +2111,11 @@ mod tests {
             }
             fn caps(&self) -> Caps {
                 Caps::MEMORY
+                    | if self.open_pins.is_some() {
+                        Caps::PINTEST
+                    } else {
+                        Caps::empty()
+                    }
             }
             fn begin(&mut self, dev: &Device) -> Result<Session> {
                 self.actions.push("begin");
@@ -2058,6 +2140,19 @@ mod tests {
             }
             fn memory(&mut self) -> Option<&mut dyn MemoryOps> {
                 Some(self)
+            }
+            fn pins(&mut self) -> Option<&mut dyn minipro_core::caps::PinTest> {
+                if self.open_pins.is_some() {
+                    Some(self)
+                } else {
+                    None
+                }
+            }
+        }
+        impl minipro_core::caps::PinTest for Fake {
+            fn contact_check(&mut self, _s: &Session) -> Result<Vec<u8>> {
+                self.actions.push("contacts");
+                Ok(self.open_pins.clone().expect("configured pin-test fake"))
             }
         }
         impl MemoryOps for Fake {
@@ -2104,8 +2199,29 @@ mod tests {
             },
             observed_id,
             actions: Vec::new(),
+            open_pins: None,
         };
         let mut image = std::io::Cursor::new(vec![0xff; 8]);
+        let mut checked = make_fake(0x1234);
+        let setup = check_setup_with_programmer(&mut checked, &dev, &mut Silent).unwrap();
+        assert_eq!(setup["chip_id_checked"], true);
+        assert_eq!(setup["pins_checked"], false);
+        assert!(setup["open_pins"].is_null());
+        assert_eq!(checked.actions, ["begin", "identify", "end"]);
+        let mut checked = make_fake(0x1234);
+        checked.open_pins = Some(vec![2, 7]);
+        let setup = check_setup_with_programmer(&mut checked, &dev, &mut Silent).unwrap();
+        assert_eq!(setup["pins_checked"], true);
+        assert_eq!(setup["open_pins"], serde_json::json!([2, 7]));
+        assert_eq!(checked.actions, ["begin", "identify", "contacts", "end"]);
+        let mut checked = make_fake(0x5678);
+        assert_eq!(
+            check_setup_with_programmer(&mut checked, &dev, &mut Silent)
+                .unwrap_err()
+                .code(),
+            "chip_id_mismatch"
+        );
+        assert_eq!(checked.actions, ["begin", "identify", "end"]);
         let mut wrong = make_fake(0x5678);
         assert_eq!(
             write_to_programmer(
