@@ -15,22 +15,26 @@ requires the target Mac and a connected T76.
 
 This path does not require Xcode or Rust on your Mac:
 
-Download the latest GitHub Release app ZIP and matching
+Download the latest GitHub Release app DMG and matching
 `.sha256` file from the [Releases page](https://github.com/WINVIST/xgecu-pro/releases)
 and start at step 3 below. A successful CI artifact is also available for
-testing changes before a release.
+testing changes before a release. If a release only offers the ZIP, use the
+ZIP alternative below.
 
 1. Sign in to GitHub and open the latest successful `macOS arm64` run for `main`
    on the [Actions page](https://github.com/WINVIST/xgecu-pro/actions/workflows/macos.yml).
 2. Under **Artifacts**, download `XGecuPro-macOS-arm64-unsigned`. GitHub gives
-   you an outer ZIP containing `XGecuPro-macOS-arm64.zip` and its `.sha256` file.
+   you an outer ZIP containing the app DMG, app ZIP and matching `.sha256` files.
 3. For an Actions artifact, extract the outer ZIP; Release assets are already
-   separate files. In Terminal, from the folder containing the app ZIP and its
-   `.sha256` file, run `shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256`.
-   After it reports `OK`, extract `XGecuPro-macOS-arm64.zip` and move
-   `XGecuPro.app` to **Applications**. Keep the ZIP if you want a copy of the
-   exact build.
-4. Open the app. This CI build has an ad hoc code signature, but no Apple
+   separate files. In Terminal, from the folder containing the DMG and its
+   `.sha256` file, run `shasum -a 256 -c XGecuPro-macOS-arm64.dmg.sha256`.
+   After it reports `OK`, open the DMG and drag **XGecuPro** onto
+   **Applications**. Wait for Finder to finish copying, then eject the
+   **XGecu Pro** volume. Keep the DMG if you want a copy of the exact build.
+   For the ZIP alternative, verify with
+   `shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256`, extract the app ZIP,
+   and move `XGecuPro.app` to **Applications**.
+4. Open the installed app from **Applications**. This CI build has an ad hoc code signature, but no Apple
    Developer ID signature or notarization. If macOS blocks it, use
    **System Settings → Privacy & Security → Open Anyway** after the first
    open attempt. Approve only the artifact from your fork's successful

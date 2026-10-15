@@ -1,0 +1,14 @@
+<!-- Original schematic folder for the design preview only. Finder supplies
+     the real Applications icon in the mounted DMG. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="front" x2="0" y2="1"><stop stop-color="#83d4fb"/><stop offset="1" stop-color="#369be0"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="2" flood-color="#1a466e" flood-opacity=".18"/></filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M11 32q0-7 7-7h30l10 10h52q7 0 7 7v57q0 7-7 7H18q-7 0-7-7Z" fill="#52b3eb" stroke="#389bda"/>
+    <rect x="12" y="42" width="104" height="64" rx="6" fill="url(#front)" stroke="#389bda"/>
+    <path d="M15 44h98" stroke="#c3eeff"/>
+    <path d="m52 88 16-31m-9 0 17 31M48 80h32" stroke="#217bb3" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+  </g>
+</svg>

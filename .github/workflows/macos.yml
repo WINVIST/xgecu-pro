@@ -69,6 +69,9 @@ jobs:
           test "$(uname -m)" = arm64
           test -x "$app/Contents/MacOS/XGecuPro"
           test -x "$app/Contents/Resources/minipro"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Contents/Info.plist")" = AppIcon
+          icon_file=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist")
+          test -s "$app/Contents/Resources/${icon_file%.icns}.icns"
           app_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
           app_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")
           printf 'App version: %s (build %s)\n' "$app_version" "$app_build"
@@ -159,6 +162,14 @@ jobs:
           "$RUNNER_TEMP/repacked/XGecuPro.app/Contents/Resources/minipro" --version
           (cd "$RUNNER_TEMP" && shasum -a 256 XGecuPro-macOS-arm64.zip > XGecuPro-macOS-arm64.zip.sha256)
 
+      - name: Package and verify drag-to-Applications DMG
+        run: |
+          python3 -m venv "$RUNNER_TEMP/dmg-venv"
+          "$RUNNER_TEMP/dmg-venv/bin/python" -m pip install -r mac-app/scripts/requirements-dmg.txt
+          "$RUNNER_TEMP/dmg-venv/bin/python" mac-app/scripts/build-dmg.py \
+            "$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app" \
+            "$RUNNER_TEMP/XGecuPro-macOS-arm64.dmg"
+
       - name: Upload installable app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -166,6 +177,8 @@ jobs:
           path: |
             ${{ runner.temp }}/XGecuPro-macOS-arm64.zip
             ${{ runner.temp }}/XGecuPro-macOS-arm64.zip.sha256
+            ${{ runner.temp }}/XGecuPro-macOS-arm64.dmg
+            ${{ runner.temp }}/XGecuPro-macOS-arm64.dmg.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -198,7 +211,10 @@ jobs:
           notes="mac-app/RELEASE-NOTES-$version.md"
           test -f "$notes"
           (cd release-assets && sha256sum -c XGecuPro-macOS-arm64.zip.sha256)
+          (cd release-assets && sha256sum -c XGecuPro-macOS-arm64.dmg.sha256)
           gh release create "$GITHUB_REF_NAME" --verify-tag \
             --title "XGecu Pro $version" --notes-file "$notes" \
             release-assets/XGecuPro-macOS-arm64.zip \
-            release-assets/XGecuPro-macOS-arm64.zip.sha256
+            release-assets/XGecuPro-macOS-arm64.zip.sha256 \
+            release-assets/XGecuPro-macOS-arm64.dmg \
+            release-assets/XGecuPro-macOS-arm64.dmg.sha256
