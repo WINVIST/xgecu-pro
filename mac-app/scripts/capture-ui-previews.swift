@@ -30,6 +30,9 @@ struct CaptureUIPreviews {
             ("12-local-buffer-work", false, 1, NSSize(width: 1180, height: 820)),
             ("13-usb-diagnostics", false, 0, NSSize(width: 700, height: 700)),
             ("14-usb3-ready", false, 0, NSSize(width: 1020, height: 680)),
+            ("15-usb-diagnostics-passed", false, 0, NSSize(width: 700, height: 700)),
+            ("16-usb-diagnostics-not-found", true, 0, NSSize(width: 700, height: 700)),
+            ("17-usb-diagnostics-interface", false, 0, NSSize(width: 700, height: 700)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
@@ -45,7 +48,7 @@ struct CaptureUIPreviews {
                 }
                 model.isT76 = true
             }
-            let screen = name == "13-usb-diagnostics"
+            let screen = name.contains("usb-diagnostics")
                 ? AnyView(USBDiagnosticsView(model: model))
                 : AnyView(ContentView(model: model, initialTab: tab))
             let content = screen
@@ -105,6 +108,24 @@ struct CaptureUIPreviews {
         model.programmingFile = URL(fileURLWithPath: "/Users/example/Firmware/router-firmware.bin")
         model.programmingFileBytes = 67_108_864
         model.status = "Firmware selected: router-firmware.bin."
+        if name.contains("usb-diagnostics") {
+            model.isT76 = false
+            model.usbDiagnosticConnection = .unknown
+            if name != "13-usb-diagnostics" {
+                let report: [String: Any]
+                if name == "15-usb-diagnostics-passed" {
+                    report = ["passed": true, "link": "Super", "opening": ["interface_claimed": true],
+                              "probes": [0, 100, 1_000, 3_000].map { ["idle_ms": $0, "firmware": "00.1.18"] as [String: Any] }]
+                } else if name == "16-usb-diagnostics-not-found" {
+                    report = ["passed": false, "error": "usb transport: no T76 connected"]
+                } else {
+                    report = ["passed": false, "link": "Super", "error": "claim interface 0: interface not found"]
+                }
+                model.usbDiagnosticSummary = USBDiagnosticSummary(report: report)
+                let data = try! JSONSerialization.data(withJSONObject: ["report": report], options: [.prettyPrinted, .sortedKeys])
+                model.usbDiagnosticReport = String(decoding: data, as: UTF8.self)
+            }
+        }
         if name == "08-catalog-favorites" || name == "09-catalog-filter-dark" {
             let names = ["AT27C256@DIP28", "MX25L51245G@SOIC16", "MX25L51245G@WSON8", "W27C512@DIP28", "W25Q128BV@SOIC8"]
             model.favoriteChips = ["MX25L51245G@SOIC16", "W27C512@DIP28"]

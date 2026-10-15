@@ -117,9 +117,31 @@ it is not a write/erase, UGREEN, direct-USB3 or cold-reconnect result.
 Build 9 removes the temporary macOS T76 SuperSpeed guard for chip programming
 and erase. The same database/ID checks run before destructive commands at both
 speeds, and programming still requires full readback equality. Programmer
-firmware updates retain a separate macOS T76 SuperSpeed guard. Actual USB3
-write/erase validation remains pending on a disposable rewritable part with a
-retained backup.
+firmware updates retain a separate macOS T76 SuperSpeed guard.
+
+The next user report supplied the successful Program and Verify completion
+message. The user clarified that this pass used the same MX25 setup through
+UGREEN instead of Wavlink. Record UGREEN programming with full readback separately
+from Wavlink's full read comparison. No new UGREEN link-speed screenshot/raw
+diagnostic or image hash was supplied. Standalone erase/blank check, direct USB3,
+Wavlink programming and repeated cold reconnects remain separate acceptance work.
+
+### Release 1.1.2: general-purpose diagnostics
+
+The app no longer offers model-specific hub names. Connection metadata uses
+`unknown`, `direct`, `hub`, `dock` or `adapter`, with optional free-text notes
+explicitly labeled user-provided. The GUI export has `schema_version: 2` and a
+`connection` object; the CLI report remains compatible and carries the actual
+OS speed independently. No topology is inferred from a chosen label.
+
+The standard test stays read-only for chip contents. The GUI summarizes detection,
+interface opening and four information exchanges, with firmware, measured speed
+and failure-specific next steps. A missing or inconsistent report cannot show
+success, even if its `passed` field is true. Technical JSON is in a disclosure,
+with local copy/save actions; reports include no programmer serial/chip contents.
+The optional U1/U2 experiment is under Advanced test. Helper-launch/JSON failures
+also produce an exportable failed report. A completed report's metadata remains
+fixed until New Test, so changing settings cannot relabel existing evidence.
 
 The normal transport maps an unavailable speed to High. The diagnostic records
 the OS-reported speed independently, leaving it null when unavailable.
@@ -191,9 +213,9 @@ the user's separate full-read comparison above.
 
 ## Next decisions after real hardware results
 
-- Wavlink full MX25 comparison passed in build 8. Test build 9 programming with
-  readback on a disposable rewritable part; separately check repeated cold
-  connects, direct USB3 and UGREEN. Preserve the original backups.
+- Wavlink full MX25 comparison and UGREEN programming/readback have been reported.
+  Separately check Wavlink programming, standalone erase/blank check, repeated
+  cold connects and direct USB3. Preserve the original backups.
 - Only U1/U2 experiment passes: evaluate a scoped transport policy and test
   long reads, idle periods and reconnects before enabling it for chip operations.
 - Neither passes: compare a native

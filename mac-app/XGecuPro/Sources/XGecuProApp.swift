@@ -112,55 +112,116 @@ struct ContentView: View {
 struct USBDiagnosticsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showAdvanced = false
+    @State private var showDetails = false
+
+    private var settingsLocked: Bool { model.busy || !model.usbDiagnosticReport.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("T76 USB Diagnostics", systemImage: "stethoscope").font(.title2.bold())
-            Text("Remove the chip. Unplug and reconnect the T76 before each test. Keep it connected until the test finishes.")
-            Text("Tests programmer information only. Validate full chip reads separately before relying on USB 3.")
-                .font(.callout).foregroundStyle(.secondary)
-            Picker("Connection", selection: $model.usbDiagnosticRoute) {
-                Text("Direct to Mac").tag("Direct to Mac")
-                Text("Wavlink").tag("Wavlink")
-                Text("UGREEN").tag("UGREEN")
-                Text("Digma (working reference)").tag("Digma")
-                Text("Wavlink → Digma").tag("Wavlink → Digma")
-            }.disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
-            Picker("Test", selection: $model.usbDiagnosticProfile) {
-                Text("Standard connection").tag("baseline")
-                Text("USB sleep experiment (advanced)").tag("device-u1-u2-disabled")
-            }.disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
-            if model.usbDiagnosticProfile == "device-u1-u2-disabled" {
-                Text("U1/U2 are USB energy-saving states. This experiment temporarily stops the programmer from requesting them; the Mac may still request them. Reconnect the T76 after the test.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            if model.busy {
-                HStack { ProgressView().controlSize(.small); Text("Testing USB… Keep the T76 connected.") }
-            } else if let passed = model.usbDiagnosticPassed {
-                Label(passed ? "Information test passed" : "Test failed — save the report and reconnect",
-                      systemImage: passed ? "checkmark.circle" : "exclamationmark.triangle")
-            }
+            Label("USB Diagnostics", systemImage: "stethoscope").font(.title2.bold())
+            Text("Check the connection between your Mac and T76, with any USB cable, hub or dock.")
+                .foregroundStyle(.secondary)
             ScrollView {
-                Text(model.usbDiagnosticReport.isEmpty ? "The report will appear here. It contains no programmer serial number or chip contents." : model.usbDiagnosticReport)
-                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(minHeight: 160, maxHeight: 240)
+                VStack(alignment: .leading, spacing: 18) {
+                    GroupBox("Before you start") {
+                        Text("Remove the chip and leave one T76 connected. Reconnect the cable at the programmer before each test, then keep it connected until the test finishes.")
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(4)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Connected through", selection: $model.usbDiagnosticConnection) {
+                            ForEach(USBConnectionKind.allCases) { connection in
+                                Text(connection.title).tag(connection)
+                            }
+                        }
+                        TextField("Connection notes (optional)", text: $model.usbDiagnosticDescription,
+                                  prompt: Text("Cable, adapter or dock model; multiple devices in the chain"))
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: model.usbDiagnosticDescription) { _, value in
+                                model.usbDiagnosticDescription = String(value.prefix(240))
+                            }
+                        Text("This description is supplied by you. USB speed below is measured by macOS.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.disabled(settingsLocked)
+                    DisclosureGroup("Advanced test", isExpanded: $showAdvanced) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Temporarily disable programmer USB sleep", isOn: Binding(
+                                get: { model.usbDiagnosticProfile == "device-u1-u2-disabled" },
+                                set: { model.usbDiagnosticProfile = $0 ? "device-u1-u2-disabled" : "baseline" }
+                            )).disabled(settingsLocked)
+                            Text("For USB 3 troubleshooting. Temporarily changes device-initiated sleep (U1/U2), then restores it. The Mac can still request sleep. Reconnect the T76 after this experiment. Start with the standard test.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.padding(.top, 6)
+                    }
+                    if model.busy {
+                        HStack { ProgressView().controlSize(.small); Text("Testing USB… Keep the T76 connected.") }
+                    } else if let summary = model.usbDiagnosticSummary {
+                        USBDiagnosticResultView(summary: summary)
+                    } else {
+                        Text("The test checks programmer information before and after idle pauses. It does not read, erase or program a chip.")
+                            .foregroundStyle(.secondary)
+                    }
+                    if !model.usbDiagnosticReport.isEmpty {
+                        DisclosureGroup("Technical report", isExpanded: $showDetails) {
+                            ScrollView {
+                                Text(model.usbDiagnosticReport)
+                                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }.frame(height: 180).padding(.top, 6)
+                        }
+                    }
+                    Text("Reports stay on your Mac until you copy or save them. They include your optional connection notes, but no programmer serial number or chip contents.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 4)
+            }
+            Divider()
             HStack {
-                Button("Close") { dismiss() }.disabled(model.busy)
+                Button("Close") { dismiss() }.disabled(model.busy).keyboardShortcut(.cancelAction)
                 Spacer()
                 if !model.usbDiagnosticReport.isEmpty {
-                    Button("New Test") {
-                        model.usbDiagnosticReport = ""
-                        model.usbDiagnosticPassed = nil
-                    }.disabled(model.busy)
+                    Button("New Test") { model.resetUSBDiagnostic() }.disabled(model.busy)
+                    Button("Copy Report") { model.copyUSBDiagnosticReport() }.disabled(model.busy)
                     Button("Save Report…") { model.saveUSBDiagnosticReport() }.disabled(model.busy)
+                } else {
+                    Button(model.usbDiagnosticProfile == "baseline" ? "Test Connection" : "Run Sleep Experiment") { model.diagnoseUSB() }
+                        .disabled(model.busy).keyboardShortcut(.defaultAction)
                 }
-                Button("Run Test") { model.diagnoseUSB() }
-                    .disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
-                    .keyboardShortcut(.defaultAction)
             }
-        }.padding(24).frame(width: 600)
+        }.padding(24).frame(width: 620, height: 650)
         .interactiveDismissDisabled(model.busy)
+        .onAppear { showAdvanced = model.usbDiagnosticProfile != "baseline" }
+    }
+}
+
+private struct USBDiagnosticResultView: View {
+    let summary: USBDiagnosticSummary
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(summary.title, systemImage: summary.passed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.headline).foregroundStyle(summary.passed ? Color.green : Color.orange)
+                HStack {
+                    Text(summary.speed)
+                    Spacer()
+                    Text("Firmware: \(summary.firmware)")
+                }.font(.callout).textSelection(.enabled)
+                step("Programmer detection", state: summary.device)
+                step("USB interface", state: summary.interface)
+                step("Information replies: \(summary.successfulProbes) of 4", state: summary.exchange)
+                Text(summary.advice).font(.callout).textSelection(.enabled)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(4)
+        }
+    }
+
+    private func step(_ title: String, state: USBDiagnosticSummary.StepState) -> some View {
+        let label = state == .passed ? "Passed" : (state == .failed ? "Not completed" : "Not run")
+        let icon = state == .passed ? "checkmark.circle" : (state == .failed ? "exclamationmark.circle" : "minus.circle")
+        return HStack {
+            Label(title, systemImage: icon)
+            Spacer()
+            Text(label).foregroundStyle(.secondary)
+        }.font(.callout)
     }
 }
 

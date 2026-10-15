@@ -86,8 +86,8 @@ For the photographed `MX25L51245GMI-08G`, the user reported **Detect ID**
 `c9a54490897ea9dfc24eaf136dd7663a87b56c890e98715ee05c531dc5807ef9`,
 and external `cmp -s` exited with status `0`. The app reported “Chip contents
 match the file” after Verify Against File. This validates a stable full code
-region read of the current MX25 contents. MX25 programming and erase have not
-been tested on this Mac.
+region read of the current MX25 contents. At that stage MX25 programming and
+erase had not been tested; the later build 9 programming result is below.
 
 The MX25 screenshot's Hex panel still shows the 134,217,728-byte MX66 buffer
 and its `2efabaa8…` SHA-256. Selecting or detecting another chip does not
@@ -113,10 +113,23 @@ hash to it without measurement.
 Build 9 removes the temporary SuperSpeed chip write/erase block in the GUI and
 CLI, preserving database eligibility, ID checks before mutation, confirmations
 and mandatory programming readback. Firmware updates to the T76 itself remain
-blocked at macOS SuperSpeed. USB3 programming/erase, UGREEN, direct USB3 and
-repeated cold reconnects have not yet been validated. Test programming first
-on a disposable rewritable part with a retained backup; a read pass does not
-establish a successful write.
+blocked at macOS SuperSpeed.
+
+### Build 9: programming with readback through UGREEN
+
+After installing build 9, the user supplied the application result
+“Programming completed and verified by a readback. The Hex buffer was not
+changed; use Read to view the chip.” Asked about the same MX25L51245G / 64 MiB
+setup, they clarified that this pass used UGREEN instead of Wavlink. This is a
+reported programming pass through UGREEN CM512 / P/N 45000 with full code-region
+readback equality. Do not label it as Wavlink programming: Wavlink has the
+separate full-read comparison above. No new UGREEN speed screenshot, raw log,
+image hash or diagnostic JSON was supplied; the earlier Wavlink USB ss image
+is not direct speed evidence for the UGREEN run. The programming path normally
+erases this NOR part before writing, but a separate Erase / Blank Check pass
+was not reported. Direct USB3 and repeated cold-connect acceptance also remain
+pending. The application deliberately preserves the Hex editor buffer after
+programming; an explicit Read refreshes it from the chip.
 
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 
@@ -154,5 +167,6 @@ controls where an electronic ID and erase capability are present. Do not use
 them on the requested Macronix parts until their placement, repeated full
 reads, and original backup have been checked. Test mutation first on a
 disposable rewritable part. The observed MX66L1G45G programming and both
-chips' repeated read passes do not establish an original MX66 backup or
-validate MX25 write/erase.
+chips' repeated read passes do not establish an original MX66 backup. The later
+MX25 Program and Verify result is recorded separately above; standalone erase
+and blank check still require their own results.

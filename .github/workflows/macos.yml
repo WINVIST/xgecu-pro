@@ -32,6 +32,7 @@ jobs:
             mac-app/XGecuPro/Sources/AppModel.swift \
             mac-app/XGecuPro/Sources/MiniProRunner.swift \
             mac-app/Shared/HexBuffer.swift mac-app/Shared/ChipPolicy.swift mac-app/Shared/ChipCatalog.swift \
+            mac-app/Shared/USBDiagnosticSummary.swift \
             mac-app/scripts/capture-ui-previews.swift \
             -o "$RUNNER_TEMP/capture-ui-previews"
           "$RUNNER_TEMP/capture-ui-previews" "$RUNNER_TEMP/ui-previews"

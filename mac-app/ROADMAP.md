@@ -100,8 +100,9 @@ the recorded results with the original dumps.
   MX66L1G45G code region was programmed with backend readback verification;
   two subsequent full 128 MiB dumps matched by SHA-256 and external `cmp`.
   The MX25L51245G code region was read twice at 64 MiB; the dumps matched by
-  SHA-256 and external `cmp`, and Verify Against File reported a match. MX25
-  write/erase remains untested. The original MX66 pre-program backup remains
+  SHA-256 and external `cmp`, and Verify Against File reported a match. Build 9
+  also received a user-reported MX25 Program and Verify pass through UGREEN;
+  standalone erase/blank check remains untested. The original MX66 pre-program backup remains
   unconfirmed. Retain original backups before destructive actions on
   disposable examples. Earlier provisional
   `MX25L25645GMI-08G` support is not part of this acceptance target.
@@ -111,8 +112,9 @@ the recorded results with the original dumps.
   interface/GET_CONFIGURATION STALL on Wavlink. The user confirmed a full 64 MiB
   MX25L51245G comparison over USB SuperSpeed against the Digma-route dump.
   Build 9 enables chip programming/erase with existing ID/readback checks;
-  USB3 write/erase, UGREEN, direct USB3 and repeated cold-connect validation
-  remain pending. Programmer firmware updates still require USB2 on macOS T76.
+  the user subsequently reported a programming/readback pass through UGREEN.
+  Wavlink programming, standalone erase/blank check, direct USB3 and repeated
+  cold-connect acceptance remain pending. Programmer firmware updates still require USB2 on macOS T76.
   The USB 2.0 fallback does not require a different programmer or ISP connection.
 
 ## 3. Additional tools already in source
