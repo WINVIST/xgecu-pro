@@ -83,6 +83,14 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           "$app/Contents/Resources/minipro" --version
 
+      - name: Check USB diagnostic report without hardware
+        run: |
+          helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          "$helper" --json usb-diagnose > "$RUNNER_TEMP/usb-diagnostic.json"
+          jq -e '.ok == true and .op == "usb-diagnose" and .report.passed == false and .report.error != null and .report.probes == []' "$RUNNER_TEMP/usb-diagnostic.json"
+          "$helper" --json usb-diagnose --disable-device-u1-u2 > "$RUNNER_TEMP/usb-diagnostic-experiment.json"
+          jq -e '.report.profile == "device-u1-u2-disabled" and .report.passed == false' "$RUNNER_TEMP/usb-diagnostic-experiment.json"
+
       - name: Check requested chips in pinned database
         run: |
           helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"

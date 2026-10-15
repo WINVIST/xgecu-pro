@@ -1179,6 +1179,7 @@ version = "0.0.0"
 dependencies = [
  "minipro-core",
  "nusb",
+ "serde",
  "tracing",
 ]
 

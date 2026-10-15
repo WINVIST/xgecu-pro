@@ -28,10 +28,14 @@ struct CaptureUIPreviews {
             ("10-setup-check", false, 0, NSSize(width: 1020, height: 680)),
             ("11-large-hex-buffer", true, 1, NSSize(width: 1180, height: 820)),
             ("12-local-buffer-work", false, 1, NSSize(width: 1180, height: 820)),
+            ("13-usb-diagnostics", false, 0, NSSize(width: 700, height: 700)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
-            let content = ContentView(model: model, initialTab: tab)
+            let screen = name == "13-usb-diagnostics"
+                ? AnyView(USBDiagnosticsView(model: model))
+                : AnyView(ContentView(model: model, initialTab: tab))
+            let content = screen
                 .preferredColorScheme(dark ? .dark : .light)
                 .frame(width: size.width, height: size.height)
             let host = NSHostingView(rootView: content)

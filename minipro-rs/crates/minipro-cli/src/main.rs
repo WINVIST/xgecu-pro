@@ -173,6 +173,12 @@ enum Command {
     },
     /// Show programmer identity and firmware status
     Info,
+    /// Test T76 USB system-info exchanges without chip/socket operations
+    UsbDiagnose {
+        /// Experimental: disable device-initiated U1/U2 during this test only
+        #[arg(long)]
+        disable_device_u1_u2: bool,
+    },
     /// Check chip identity and supported socket diagnostics without mutation
     Check {
         /// Exact selected chip name
@@ -251,6 +257,7 @@ impl Command {
             Command::Blank { .. } => "blank",
             Command::Verify { .. } => "verify",
             Command::Info => "info",
+            Command::UsbDiagnose { .. } => "usb-diagnose",
             Command::Check { .. } => "check",
             Command::Search { .. } => "search",
             Command::Describe { .. } => "describe",
@@ -444,6 +451,9 @@ fn main() -> ExitCode {
             &mut *reporter_for(mode),
         ),
         Command::Info => run_info(db_dir, &mut *reporter_for(mode)),
+        Command::UsbDiagnose {
+            disable_device_u1_u2,
+        } => run_usb_diagnose(*disable_device_u1_u2, mode),
         Command::Check { chip } => run_check(db_dir, chip, mode),
         Command::Detect { like } => run_detect(db_dir, like, mode),
         Command::Logic { chip } => run_logic(db_dir, chip, mode),
@@ -1106,6 +1116,27 @@ fn erase_with_programmer(
     }
 
     rep.finish(&Outcome::Ok { op: "erase" });
+    Ok(())
+}
+
+fn run_usb_diagnose(disable_device_u1_u2: bool, mode: Mode) -> Result<()> {
+    use minipro_usb::diagnostic::{diagnose_t76, Profile};
+    let profile = if disable_device_u1_u2 {
+        Profile::DeviceU1U2Disabled
+    } else {
+        Profile::Baseline
+    };
+    let report = diagnose_t76(profile);
+    // `ok` means the report was generated, not that USB worked. Failed hardware
+    // tests are still exportable by the GUI; inspect `report.passed`.
+    let value = serde_json::json!({ "ok": true, "op": "usb-diagnose", "report": report });
+    match mode {
+        Mode::Json => println!("{value}"),
+        _ => println!(
+            "{}",
+            serde_json::to_string_pretty(&value).map_err(|e| Error::Usb(e.to_string()))?
+        ),
+    }
     Ok(())
 }
 
@@ -1785,6 +1816,33 @@ mod tests {
     #[test]
     fn clap_definition_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn usb_diagnostic_profile_is_explicit_and_not_a_global_guard_override() {
+        let cli = Cli::try_parse_from(["minipro", "--json", "usb-diagnose"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::UsbDiagnose {
+                disable_device_u1_u2: false
+            })
+        ));
+        let cli =
+            Cli::try_parse_from(["minipro", "usb-diagnose", "--disable-device-u1-u2"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::UsbDiagnose {
+                disable_device_u1_u2: true
+            })
+        ));
+        assert!(Cli::try_parse_from([
+            "minipro",
+            "write",
+            "chip",
+            "image.bin",
+            "--disable-device-u1-u2"
+        ])
+        .is_err());
     }
 
     #[test]

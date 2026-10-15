@@ -47,13 +47,16 @@ bitstream inflate. **C:** libusb-1.0 + zlib via pkg-config.
 nothing else, and a static musl binary on Linux, removes the whole class.
 
 **How it fared.** The decision held, but its *workaround* became the week's
-nastiest bug. nusb on macOS needed a configuration cycle (`set_configuration(0)`
-then `(1)`) to re-arm the T76's bulk endpoints at SuperSpeed — a problem libusb
-users never see because the C tool is typically run with a USB-2 cable. We
+nastiest bug. A configuration cycle (`set_configuration(0)` then `(1)`)
+once re-armed the T76's bulk endpoints at SuperSpeed, but never became a
+repeatable fix in either nusb or libusb. We
 applied that cycle on **every** open. At High Speed it is not merely
 unnecessary: after a completed session it wedges the device, so every other
 invocation froze. Four consecutive clean runs of the C tool — which does no
 config cycle — is what localized it. Now gated on `LinkSpeed::Super`.
+
+The USB diagnostic path skips that cycle and keeps chip operations guarded;
+see [current evidence and experiments](ch569-usb3-notes.md).
 
 Verdict: right decision, and a reminder that a workaround is itself a
 divergence needing a guard.

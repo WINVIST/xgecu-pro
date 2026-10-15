@@ -142,6 +142,12 @@ cable or hub remains a High Speed fallback. No ISP/ICSP cable is needed for
 this socket-based workflow. See [HARDWARE-VALIDATION.md](HARDWARE-VALIDATION.md)
 for the recorded result and remaining checks.
 
+For USB 3 connection problems, open **USB Diagnostics…**. It tests read-only
+system-info exchanges without the normal compatibility guard and offers an
+optional device U1/U2 experiment. Save a report for each connection/profile,
+unplugging and reconnecting before each test. This does not enable SuperSpeed
+chip operations. See [USB3 evidence and next steps](../docs/ch569-usb3-notes.md).
+
 Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
 For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.
 The programmer reads its JEDEC ID and the app lists all SOIC16 entries with

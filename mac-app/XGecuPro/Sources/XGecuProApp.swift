@@ -27,6 +27,8 @@ struct XGecuProApp: App {
             CommandMenu("Programmer") {
                 Button("Connect / Refresh") { model.connect() }
                     .keyboardShortcut("r").disabled(model.busy)
+                Button("USB Diagnostics…") { model.showUSBDiagnostics = true }
+                    .disabled(model.busy)
                 Button("Auto Detect SOIC16") { model.autoDetectSOIC16() }
                     .disabled(model.busy || !model.isT76)
             }
@@ -95,12 +97,70 @@ struct ContentView: View {
         .onChange(of: model.bufferSize) { _, size in
             if size > 0 { selectedTab = 1 }
         }
+        .sheet(isPresented: $model.showUSBDiagnostics) {
+            USBDiagnosticsView(model: model)
+        }
         .onChange(of: model.lastFile) { _, file in
             if file != nil && model.bufferSize > 0 { selectedTab = 1 }
         }
         .onChange(of: model.programmingFile) { _, file in
             if file != nil { selectedTab = 0 }
         }
+    }
+}
+
+struct USBDiagnosticsView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("T76 USB Diagnostics", systemImage: "stethoscope").font(.title2.bold())
+            Text("Remove the chip. Unplug and reconnect the T76 before each test. Keep it connected until the test finishes.")
+            Text("Tests programmer information only. A pass does not enable USB 3 chip operations.")
+                .font(.callout).foregroundStyle(.secondary)
+            Picker("Connection", selection: $model.usbDiagnosticRoute) {
+                Text("Direct to Mac").tag("Direct to Mac")
+                Text("Wavlink").tag("Wavlink")
+                Text("UGREEN").tag("UGREEN")
+                Text("Digma (working reference)").tag("Digma")
+                Text("Wavlink → Digma").tag("Wavlink → Digma")
+            }.disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
+            Picker("Test", selection: $model.usbDiagnosticProfile) {
+                Text("Standard connection").tag("baseline")
+                Text("Device U1/U2 experiment").tag("device-u1-u2-disabled")
+            }.disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
+            if model.usbDiagnosticProfile == "device-u1-u2-disabled" {
+                Text("Temporarily prevents device-initiated USB 3 sleep. The host may still initiate sleep. The test attempts to restore the initial settings afterward; reconnect the T76 before continuing.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            if model.busy {
+                HStack { ProgressView().controlSize(.small); Text("Testing USB… Keep the T76 connected.") }
+            } else if let passed = model.usbDiagnosticPassed {
+                Label(passed ? "Information test passed" : "Test failed — save the report and reconnect",
+                      systemImage: passed ? "checkmark.circle" : "exclamationmark.triangle")
+            }
+            ScrollView {
+                Text(model.usbDiagnosticReport.isEmpty ? "The report will appear here. It contains no programmer serial number or chip contents." : model.usbDiagnosticReport)
+                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(minHeight: 160, maxHeight: 240)
+            HStack {
+                Button("Close") { dismiss() }.disabled(model.busy)
+                Spacer()
+                if !model.usbDiagnosticReport.isEmpty {
+                    Button("New Test") {
+                        model.usbDiagnosticReport = ""
+                        model.usbDiagnosticPassed = nil
+                    }.disabled(model.busy)
+                    Button("Save Report…") { model.saveUSBDiagnosticReport() }.disabled(model.busy)
+                }
+                Button("Run Test") { model.diagnoseUSB() }
+                    .disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }.padding(24).frame(width: 600)
+        .interactiveDismissDisabled(model.busy)
     }
 }
 
@@ -122,6 +182,8 @@ private struct ChipSidebar: View {
                     .textSelection(.enabled)
                 Button("Connect / Refresh", systemImage: "arrow.clockwise") { model.connect() }
                     .disabled(model.busy).help("Check the programmer and USB link. Command-R.")
+                Button("USB Diagnostics…", systemImage: "stethoscope") { model.showUSBDiagnostics = true }
+                    .disabled(model.busy)
             }
             Divider()
             VStack(alignment: .leading, spacing: 8) {

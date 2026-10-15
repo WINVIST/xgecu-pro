@@ -26,6 +26,11 @@ final class AppModel: ObservableObject {
     @Published var deviceStatus = "Programmer not checked"
     @Published var status = "Connect the T76 with the supplied USB cable, then click Connect / Refresh."
     @Published var busy = false
+    @Published var showUSBDiagnostics = false
+    @Published var usbDiagnosticProfile = "baseline"
+    @Published var usbDiagnosticRoute = "Direct to Mac"
+    @Published var usbDiagnosticReport = ""
+    @Published var usbDiagnosticPassed: Bool?
     @Published var keepProgrammerConnected = false
     @Published var progress: Double?
     @Published var currentStage: String?
@@ -130,6 +135,46 @@ final class AppModel: ObservableObject {
                 self.status = "T76 connected. Select a chip."
             }
         }
+    }
+
+    func diagnoseUSB() {
+        guard !busy else { return }
+        isT76 = false
+        deviceStatus = "USB diagnostics; refresh before chip operations"
+        usbDiagnosticReport = ""
+        usbDiagnosticPassed = nil
+        let route = usbDiagnosticRoute
+        var arguments = ["usb-diagnose"]
+        if usbDiagnosticProfile == "device-u1-u2-disabled" {
+            arguments.append("--disable-device-u1-u2")
+        }
+        perform(arguments) { [weak self] result in
+            guard let self, let report = result["report"] as? [String: Any] else { return }
+            self.usbDiagnosticPassed = report["passed"] as? Bool ?? false
+            var export = result
+            export["route"] = route
+            export["macOS"] = ProcessInfo.processInfo.operatingSystemVersionString
+            export["app_version"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+            export["app_build"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
+            export["date"] = ISO8601DateFormatter().string(from: Date())
+            if let data = try? JSONSerialization.data(withJSONObject: export, options: [.prettyPrinted, .sortedKeys]),
+               let text = String(data: data, encoding: .utf8) {
+                self.usbDiagnosticReport = text
+            }
+            self.status = self.usbDiagnosticPassed == true
+                ? "USB information test passed. Chip read/write compatibility still needs validation."
+                : "USB test failed. Save the report, then unplug and reconnect the T76."
+            self.appendLog(self.status)
+        }
+    }
+
+    func saveUSBDiagnosticReport() {
+        guard !busy, !usbDiagnosticReport.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "T76-USB-\(usbDiagnosticProfile).json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try usbDiagnosticReport.write(to: url, atomically: true, encoding: .utf8) }
+        catch { status = "Could not save USB report: \(error.localizedDescription)" }
     }
 
     func search() {
@@ -696,7 +741,7 @@ final class AppModel: ObservableObject {
         var stageStartedAt = startedAt
         var lastMilestone = -1
         busy = true
-        keepProgrammerConnected = ["info", "read", "write", "erase", "blank", "verify", "detect", "check", "autodetect"].contains(operation)
+        keepProgrammerConnected = ["info", "usb-diagnose", "read", "write", "erase", "blank", "verify", "detect", "check", "autodetect"].contains(operation)
         progress = nil
         currentStage = "Starting \(operation)…"
         status = "Running: \(operation)…"

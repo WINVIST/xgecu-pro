@@ -6,7 +6,7 @@
 //! [`UsbTransport`] talks to the device over `nusb` (pure-Rust USB — the choice
 //! that drops the libusb C dependency and the pkg-config build pain). It also
 //! centralizes the macOS lesson: expose the link speed so the caller can
-//! diagnose the SuperSpeed/U1-U2 failure instead of returning a bare I/O error.
+//! diagnose the historical SuperSpeed failure instead of returning a bare I/O error.
 //!
 //! [`MockTransport`] replays capture fixtures, turning the T76 protocol into
 //! hardware-free unit tests.
@@ -15,6 +15,8 @@
 //! surface (`MaybeFuture::wait` and `Endpoint::transfer_blocking`), so the
 //! [`Transport`] trait stays synchronous and no executor leaks upward.
 #![forbid(unsafe_code)]
+
+pub mod diagnostic;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -509,6 +511,17 @@ fn open_device(
     pid: u16,
     sel: Select<'_>,
 ) -> Result<(nusb::Device, nusb::Interface, LinkSpeed, Option<String>)> {
+    open_device_with_policy(vid, pid, sel, true)
+}
+
+/// Diagnostic opens skip the historical configuration cycle so the baseline
+/// measures the host's original configuration. Normal opens keep their policy.
+fn open_device_with_policy(
+    vid: u16,
+    pid: u16,
+    sel: Select<'_>,
+    arm: bool,
+) -> Result<(nusb::Device, nusb::Interface, LinkSpeed, Option<String>)> {
     let devices = nusb::list_devices()
         .wait()
         .map_err(|e| Error::Usb(format!("enumerate: {e}")))?;
@@ -552,7 +565,8 @@ fn open_device(
     // T76 (0xA466:0x1A86) on macOS: at USB 3.0 SuperSpeed the bulk endpoints
     // often come up unresponsive (kIOReturnNotResponding on the first OUT)
     // even though control transfers and interface-claim succeed. Cycling the
-    // configuration (0 -> 1) re-arms the endpoints.
+    // configuration (0 -> 1) once re-armed the endpoints, but was not a
+    // repeatable fix. Diagnostics skip it to measure a clean baseline.
     //
     // **Only at SuperSpeed.** It was previously done on every open, and at High
     // Speed that is not merely unnecessary — it wedges the device. Measured: a
@@ -565,7 +579,12 @@ fn open_device(
     //
     // The set_configuration return is ignored — it's advisory, and the re-arm
     // is a best-effort workaround.
-    if cfg!(target_os = "macos") && vid == T76_VID && pid == T76_PID && link == LinkSpeed::Super {
+    if arm
+        && cfg!(target_os = "macos")
+        && vid == T76_VID
+        && pid == T76_PID
+        && link == LinkSpeed::Super
+    {
         let _ = device.set_configuration(0).wait();
         let _ = device.set_configuration(1).wait();
     }
