@@ -53,10 +53,13 @@ repeatable fix in either nusb or libusb. We
 applied that cycle on **every** open. At High Speed it is not merely
 unnecessary: after a completed session it wedges the device, so every other
 invocation froze. Four consecutive clean runs of the C tool — which does no
-config cycle — is what localized it. Now gated on `LinkSpeed::Super`.
+config cycle — is what localized it. It was first gated on `LinkSpeed::Super`.
 
-The USB diagnostic path skips that cycle and keeps chip operations guarded;
-see [current evidence and experiments](ch569-usb3-notes.md).
+Build 5 diagnostics then demonstrated four successful SuperSpeed exchanges
+without the cycle on the user's Wavlink/M3 Pro/T76 firmware 00.1.18. Build 6
+removes the cycle for normal opens too. Connection and reads use actual USB
+results; destructive macOS T76 SuperSpeed operations remain guarded while
+chip transfers are validated. See [current evidence](ch569-usb3-notes.md).
 
 Verdict: right decision, and a reminder that a workaround is itself a
 divergence needing a guard.

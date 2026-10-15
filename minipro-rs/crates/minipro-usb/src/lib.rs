@@ -62,8 +62,8 @@ const SHORT_TIMEOUT: Duration = Duration::from_millis(5_000);
 /// 1800x the observed worst case.
 const SLOW_READ_TIMEOUT: Duration = Duration::from_millis(360_000);
 
-/// Interface-claim retry (vendor: 5 attempts, 200 ms apart — the pipes need a
-/// moment to settle after the T76 config-cycle re-arm below).
+/// Interface-claim retry: allow transient macOS enumeration delays without
+/// changing USB configuration or retrying a command that reached the device.
 const CLAIM_ATTEMPTS: u32 = 5;
 const CLAIM_RETRY_DELAY: Duration = Duration::from_millis(200);
 
@@ -114,8 +114,8 @@ enum Select<'a> {
 impl UsbTransport {
     /// Open the T76 (`0xA466:0x1A86`) and claim interface 0.
     ///
-    /// Enumerates with `nusb`, opens the first matching device, applies the
-    /// T76 endpoint-arming workaround, claims interface 0 (with retry), claims
+    /// Enumerates with `nusb`, opens the first matching device,
+    /// claims interface 0 (with retry), claims
     /// the bulk command endpoints 0x01 OUT / 0x81 IN, and records the
     /// negotiated link speed.
     pub fn open(vid: u16, pid: u16) -> Result<Self> {
@@ -151,12 +151,6 @@ impl UsbTransport {
             }
         }
         Err(no_device_error(last))
-    }
-
-    /// Guard chip operations on the historically failing macOS SuperSpeed path.
-    /// This is a policy check, not a live bulk-transfer result.
-    pub fn check_link(&self) -> Result<()> {
-        superspeed_diagnostic(cfg!(target_os = "macos"), self.vid, self.pid, self.link)
     }
 
     /// Get (claiming and caching on first use) a bulk OUT endpoint.
@@ -504,24 +498,13 @@ fn no_device_error(last: Option<Error>) -> Error {
     }
 }
 
-/// Enumerate, open, arm (T76 only), and claim interface 0 of `vid:pid`,
+/// Enumerate, open and claim interface 0 of `vid:pid`,
 /// choosing between multiple attached units per `sel`. Also returns the chosen
 /// unit's USB serial, so a later reset can insist on the same one.
 fn open_device(
     vid: u16,
     pid: u16,
     sel: Select<'_>,
-) -> Result<(nusb::Device, nusb::Interface, LinkSpeed, Option<String>)> {
-    open_device_with_policy(vid, pid, sel, true)
-}
-
-/// Diagnostic opens skip the historical configuration cycle so the baseline
-/// measures the host's original configuration. Normal opens keep their policy.
-fn open_device_with_policy(
-    vid: u16,
-    pid: u16,
-    sel: Select<'_>,
-    arm: bool,
 ) -> Result<(nusb::Device, nusb::Interface, LinkSpeed, Option<String>)> {
     let devices = nusb::list_devices()
         .wait()
@@ -563,36 +546,11 @@ fn open_device_with_policy(
         .wait()
         .map_err(|e| Error::Usb(format!("open {vid:04x}:{pid:04x}: {e}")))?;
 
-    // T76 (0xA466:0x1A86) on macOS: at USB 3.0 SuperSpeed the bulk endpoints
-    // often come up unresponsive (kIOReturnNotResponding on the first OUT)
-    // even though control transfers and interface-claim succeed. Cycling the
-    // configuration (0 -> 1) once re-armed the endpoints, but was not a
-    // repeatable fix. Diagnostics skip it to measure a clean baseline.
-    //
-    // **Only at SuperSpeed.** It was previously done on every open, and at High
-    // Speed that is not merely unnecessary — it wedges the device. Measured: a
-    // completed session (bitstream upload + BEGIN_TRANS + END_TRANS) followed by
-    // a config cycle leaves the T76 unable to answer the next command at all,
-    // so every other invocation of `detect`/`read`/`write` blocked on EP81 until
-    // its 360 s timeout. Gating on the speed made five consecutive runs clean
-    // where the alternation had been perfectly reproducible. The C tool does no
-    // config cycle and never showed the problem.
-    //
-    // The set_configuration return is ignored — it's advisory, and the re-arm
-    // is a best-effort workaround.
-    if arm
-        && cfg!(target_os = "macos")
-        && vid == T76_VID
-        && pid == T76_PID
-        && link == LinkSpeed::Super
-    {
-        let _ = device.set_configuration(0).wait();
-        let _ = device.set_configuration(1).wait();
-    }
-
-    // Claim with a short retry: the pipes need a moment to settle after the
-    // reconfigure above, and macOS occasionally returns a transient error on
-    // the first claim.
+    // Preserve the host's configuration. A real T76 on M3 Pro + macOS 26.7.1
+    // answered all four SuperSpeed system-info probes through Wavlink without
+    // a configuration cycle. The old 0->1 cycle was never a repeatable fix and
+    // could wedge the High Speed path after a session. See ch569-usb3-notes.md.
+    // Only retry claiming the interface; never retry an accepted USB command.
     let mut interface = None;
     let mut last_err = None;
     for attempt in 0..CLAIM_ATTEMPTS {
@@ -609,7 +567,7 @@ fn open_device_with_policy(
     }
     let interface = interface.ok_or_else(|| {
         let detail = last_err.map(|e| e.to_string()).unwrap_or_default();
-        Error::Usb(format!("claim interface 0: {detail}"))
+        Error::Usb(format!("claim interface 0: {detail}; disconnect the T76, wait for it to disappear, then reconnect and refresh"))
     })?;
 
     Ok((device, interface, link, serial))
@@ -618,8 +576,7 @@ fn open_device_with_policy(
 /// Map nusb's negotiated speed onto the trait's three-way [`LinkSpeed`].
 ///
 /// `None` (platform could not report a speed) maps to `High`: the practical
-/// default for this hardware, and one that never false-triggers the macOS
-/// SuperSpeed diagnostic.
+/// default retained for compatibility. Diagnostics record unknown speed as null.
 fn link_speed_from(speed: Option<Speed>) -> LinkSpeed {
     match speed {
         Some(Speed::Low | Speed::Full) => LinkSpeed::Full,
@@ -628,19 +585,6 @@ fn link_speed_from(speed: Option<Speed>) -> LinkSpeed {
         // non-exhaustive enum: all take the SuperSpeed bulk path.
         Some(_) => LinkSpeed::Super,
     }
-}
-
-/// The macOS-lesson check behind [`UsbTransport::check_link`], parameterized on
-/// the OS and device ID so it is unit-testable on any host.
-fn superspeed_diagnostic(is_macos: bool, vid: u16, pid: u16, link: LinkSpeed) -> Result<()> {
-    if is_macos && vid == T76_VID && pid == T76_PID && link == LinkSpeed::Super {
-        return Err(Error::Usb(
-            "T76 on macOS SuperSpeed: chip operations are blocked pending validation; \
-             run USB Diagnostics or use a USB 2.0 cable"
-                .into(),
-        ));
-    }
-    Ok(())
 }
 
 /// A record/replay transport for protocol unit tests. Each `send` must match the
@@ -892,33 +836,6 @@ mod tests {
         assert!(tx.send(Ep(0x01), &[0x99]).is_err()); // desync -> Protocol error
     }
 
-    // check_link delegates to superspeed_diagnostic(os, vid, pid, link); the
-    // helper is what makes the macOS T76 SuperSpeed rejection testable on every host
-    // without a live device.
-    #[test]
-    fn check_link_rejects_macos_superspeed() {
-        let err = superspeed_diagnostic(true, T76_VID, T76_PID, LinkSpeed::Super).unwrap_err();
-        assert_eq!(err.code(), "usb");
-        assert!(err.to_string().contains("SuperSpeed"));
-        assert!(err.to_string().contains("USB 2.0"));
-        assert!(err.to_string().contains("USB Diagnostics"));
-        assert!(!err.to_string().contains("bulk transfers fail"));
-        // The typed error carries the hard-won remediation hint.
-        assert_eq!(
-            err.hint(),
-            Some("on macOS + T76, connect via a USB 2.0 cable to force High Speed")
-        );
-    }
-
-    #[test]
-    fn check_link_accepts_other_combinations() {
-        assert!(superspeed_diagnostic(true, T76_VID, T76_PID, LinkSpeed::High).is_ok());
-        assert!(superspeed_diagnostic(true, T76_VID, T76_PID, LinkSpeed::Full).is_ok());
-        assert!(superspeed_diagnostic(false, T76_VID, T76_PID, LinkSpeed::Super).is_ok());
-        assert!(superspeed_diagnostic(false, T76_VID, T76_PID, LinkSpeed::High).is_ok());
-        assert!(superspeed_diagnostic(true, TL866II_VID, TL866II_PID, LinkSpeed::Super).is_ok());
-    }
-
     #[test]
     fn link_speed_mapping_matches_trait_serialization() {
         assert_eq!(link_speed_from(Some(Speed::Low)), LinkSpeed::Full);
@@ -926,7 +843,7 @@ mod tests {
         assert_eq!(link_speed_from(Some(Speed::High)), LinkSpeed::High);
         assert_eq!(link_speed_from(Some(Speed::Super)), LinkSpeed::Super);
         assert_eq!(link_speed_from(Some(Speed::SuperPlus)), LinkSpeed::Super);
-        // Unknown never false-triggers the macOS SuperSpeed diagnostic.
+        // Compatibility mapping only; diagnostics retain unknown as null.
         assert_eq!(link_speed_from(None), LinkSpeed::High);
     }
 

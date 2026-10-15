@@ -12,14 +12,20 @@ completed record in a private location.
    speed. Optionally save the listing with
    `system_profiler SPUSBDataType > usb-direct.txt`.
 2. In XGecu Pro, click **Connect / Refresh**. Record the displayed model,
-   firmware, USB link, and any error text. A SuperSpeed diagnostic means chip
-   operations must wait for a working link.
+   firmware, USB link, and any error text. Build 6 supports SuperSpeed connection
+   and reads for validation; programming and erase remain limited to High Speed.
 3. If direct SuperSpeed does not work, connect the supplied cable through a
    USB 2.0 hub, if its connectors fit. Repeat the speed and Connect / Refresh
    checks. Record which connection succeeds. Do not infer direct-cable support
    from a successful hub test.
 
 ## 2. Read the two photographed Macronix parts
+
+For USB3 validation, first record a verified full dump of the unchanged chip
+through the working Digma route. Reconnect through Wavlink without Digma, read
+the same chip twice and compare the saved dump's SHA-256 with the Digma dump.
+Repeat Connect / Refresh after physical reconnects. A successful system-info
+report alone does not establish chip-transfer or programming reliability.
 
 Only proceed on a working T76 connection. Use the correct 300 mil SOP16 adapter
 and the manufacturer's verified pin-1 and placement instructions. The package

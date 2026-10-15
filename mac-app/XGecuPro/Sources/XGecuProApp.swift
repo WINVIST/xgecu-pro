@@ -117,7 +117,7 @@ struct USBDiagnosticsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Label("T76 USB Diagnostics", systemImage: "stethoscope").font(.title2.bold())
             Text("Remove the chip. Unplug and reconnect the T76 before each test. Keep it connected until the test finishes.")
-            Text("Tests programmer information only. A pass does not enable USB 3 chip operations.")
+            Text("Tests programmer information only. Validate full chip reads separately before relying on USB 3.")
                 .font(.callout).foregroundStyle(.secondary)
             Picker("Connection", selection: $model.usbDiagnosticRoute) {
                 Text("Direct to Mac").tag("Direct to Mac")
@@ -128,10 +128,10 @@ struct USBDiagnosticsView: View {
             }.disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
             Picker("Test", selection: $model.usbDiagnosticProfile) {
                 Text("Standard connection").tag("baseline")
-                Text("Device U1/U2 experiment").tag("device-u1-u2-disabled")
+                Text("USB sleep experiment (advanced)").tag("device-u1-u2-disabled")
             }.disabled(model.busy || !model.usbDiagnosticReport.isEmpty)
             if model.usbDiagnosticProfile == "device-u1-u2-disabled" {
-                Text("Temporarily prevents device-initiated USB 3 sleep. The host may still initiate sleep. The test attempts to restore the initial settings afterward; reconnect the T76 before continuing.")
+                Text("U1/U2 are USB energy-saving states. This experiment temporarily stops the programmer from requesting them; the Mac may still request them. Reconnect the T76 after the test.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             if model.busy {
@@ -180,6 +180,10 @@ private struct ChipSidebar: View {
                     .font(.headline)
                 Text(model.deviceStatus).font(.caption).foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                if model.usb3ReadValidation {
+                    Text("USB 3 read validation: read and compare available. Programming requires USB 2.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Connect / Refresh", systemImage: "arrow.clockwise") { model.connect() }
                     .disabled(model.busy).help("Check the programmer and USB link. Command-R.")
                 Button("USB Diagnostics…", systemImage: "stethoscope") { model.showUSBDiagnostics = true }

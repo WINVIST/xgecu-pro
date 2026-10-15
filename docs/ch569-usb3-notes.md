@@ -12,14 +12,16 @@ interface claims, followed by `kIOReturnNotResponding` (`0xe00002ed`) on the
 first bulk OUT to endpoint 0x01 at SuperSpeed. The command endpoints advertised
 1024-byte packets, no streams. High Speed worked. See [the original record](minipro-setup.md).
 
-The normal Rust CLI currently rejects macOS + T76 + SuperSpeed in
-`check_link()` **before sending system-info**. Its error reports a compatibility
-guard, not a fresh transfer failure on the connected hub. Normal opens retain
-a historical configuration cycle at SuperSpeed; it was never a reliable fix,
-and doing it at High Speed previously caused reproducible failures.
+Stable 1.1.1 / diagnostic build 5 rejected macOS + T76 + SuperSpeed in
+`check_link()` **before sending system-info**. That was a compatibility guard,
+not a fresh transfer failure. Ordinary opens also cycled configuration 0→1;
+diagnostics skipped it. Build 6 removes the cycle and allows normal connection,
+chip identification, reads and comparisons at SuperSpeed. Programming, erase
+and programmer firmware updates remain blocked on macOS T76 SuperSpeed pending
+full chip-transfer validation. USB2 and other platforms/models retain their policy.
 
-User reports on 2026-10-15: MacBook Pro 16-inch M3 Pro, macOS 26.7; T76 firmware
-version not yet supplied. These are connection observations, not chip read/write
+User reports on 2026-10-15: MacBook Pro 16-inch M3 Pro; report confirms macOS
+26.7.1 (25G241), T76 firmware 00.1.18. These are connection observations, not chip read/write
 validation:
 
 | Connection | Reported result | Link evidence |
@@ -27,7 +29,15 @@ validation:
 | Mac → Digma DHUB-LAN-4port → T76 | works | app displays `hs` |
 | Mac → Wavlink WL-UG69PD25 Pro → Digma → T76 | works | measure separately |
 | Mac → UGREEN CM512 / P/N 45000 → T76 | compatibility error | guarded CLI does not attempt bulk transfer |
-| Mac → Wavlink WL-UG69PD25 Pro → T76 | compatibility error | guarded CLI does not attempt bulk transfer |
+| Mac → Wavlink WL-UG69PD25 Pro → T76 | build 5 baseline passes all 4 probes | OS reports Super; EP01/81 MPS 1024; firmware 00.1.18 |
+
+The baseline report at 2026-10-15T11:47:52Z measured 98 ms for every system-info
+exchange after 0/100/1000/3000 ms idle. GET_STATUS was 1: U1/U2 device-initiated
+flags were already clear. This does not establish host-initiated LPM policy.
+The second report (11:49:01Z), device U1/U2 profile, failed claiming interface 0
+(`interface not found`); no control feature or bulk command was issued. It is
+not evidence that changing U1/U2 failed, nor does it prove why the interface
+was absent. No chip read, programming or repeated cold-connect result is supplied yet.
 
 The normal transport maps an unavailable speed to High. The diagnostic records
 the OS-reported speed independently, leaving it null when unavailable.
@@ -55,7 +65,8 @@ SIP, registry policy or shared hub ports as an automatic workaround.
 Open **USB Diagnostics…** in the app sidebar or Programmer menu. Remove the
 chip, connect exactly one T76 and unplug/replug before **each** test. Label the
 connection, run the standard test first and save its JSON report. Reconnect,
-then run the device U1/U2 experiment on the same SuperSpeed connection.
+then run the optional USB sleep experiment (advanced) if needed. The successful
+Wavlink baseline requires no power-management workaround.
 
 Equivalent bundled-helper commands:
 
@@ -65,8 +76,8 @@ Equivalent bundled-helper commands:
 "/Applications/XGecuPro.app/Contents/Resources/minipro" --json usb-diagnose --disable-device-u1-u2
 ```
 
-Both skip the configuration cycle and bypass the compatibility guard **only**
-inside this bounded experiment. They read BOS/status and request system-info
+Diagnostics and ordinary opens now both preserve the host configuration.
+The diagnostics read BOS/status and request system-info
 four times, with idle intervals 0, 100, 1000 and 3000 ms. Ordinary bulk calls
 retain 5-second deadlines. The first failed command stops the experiment;
 there is no reset or retry. No chip commands, socket voltages, bitstreams or
@@ -93,12 +104,14 @@ See [Microsoft's U1/U2 transition description](https://learn.microsoft.com/en-us
 JSON `ok` means a report was produced, including when no device opened. Inspect
 `report.passed`, `report.error`, individual `probes` and `restore_error` for
 the actual result. Passing system-info does not validate chip transfers or
-enable ordinary SuperSpeed operations.
+enable SuperSpeed programming. The current build allows reads for validation.
 
 ## Next decisions after real hardware results
 
-- Baseline passes on a hub: the blanket guard may be unnecessarily restrictive
-  there. Validate repeated cold connects and identical chip reads before changing it.
+- Wavlink baseline passes: test build 6 normal Connect / Refresh repeatedly after
+  cold connects, then read a full chip twice through Wavlink. Compare with a dump
+  from the same unchanged chip through Digma. Reads already verify by a second
+  full read; also compare the cross-route SHA-256 before enabling USB3 mutation.
 - Only U1/U2 experiment passes: evaluate a scoped transport policy and test
   long reads, idle periods and reconnects before enabling it for chip operations.
 - Neither passes: compare a native

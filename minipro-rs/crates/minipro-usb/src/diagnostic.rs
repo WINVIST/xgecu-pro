@@ -103,8 +103,7 @@ fn diagnose(profile: Profile, report: &mut Report) -> Result<()> {
     }
     // Sole also checks the second enumeration. No serial is embedded in errors
     // or the exported report; this path performs no chip operation.
-    let (device, interface, link, serial) =
-        open_device_with_policy(T76_VID, T76_PID, Select::Sole, false)?;
+    let (device, interface, link, serial) = open_device(T76_VID, T76_PID, Select::Sole)?;
     let mut tx = UsbTransport {
         device,
         interface: Some(interface),

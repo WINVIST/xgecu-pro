@@ -480,7 +480,9 @@ fn main() -> ExitCode {
 /// With nothing plugged in this returns the transport's "no device" error.
 pub(crate) fn open_programmer() -> Result<Box<dyn Programmer>> {
     let tx = minipro_usb::UsbTransport::open_any()?;
-    tx.check_link()?; // macOS + SuperSpeed diagnosis, not a bare I/O error
+    // Detect with real system-info exchanges at every speed. A Wavlink/M3 Pro
+    // hardware report established that the blanket SuperSpeed rejection was
+    // too broad. Destructive operations retain their narrower policy below.
     let prog = minipro_proto::detect(Box::new(tx))?;
     if std::env::var("MINIPRO_REQUIRE_MODEL").ok().as_deref() == Some("T76")
         && prog.info().model != "T76"
@@ -488,6 +490,28 @@ pub(crate) fn open_programmer() -> Result<Box<dyn Programmer>> {
         return Err(Error::Unsupported("this application requires an XGecu T76"));
     }
     Ok(prog)
+}
+
+fn check_mutation_link(prog: &dyn Programmer) -> Result<()> {
+    mutation_link_policy(
+        cfg!(target_os = "macos"),
+        &prog.info().model,
+        prog.info().link,
+    )
+}
+
+fn mutation_link_policy(
+    is_macos: bool,
+    model: &str,
+    link: minipro_core::transport::LinkSpeed,
+) -> Result<()> {
+    if is_macos && model == "T76" && link == minipro_core::transport::LinkSpeed::Super {
+        return Err(Error::Unsupported(
+            "T76 USB 3 programming, erase and firmware updates await chip-transfer validation; \
+             read and compare a full dump first; use a USB 2.0 cable or hub for programming",
+        ));
+    }
+    Ok(())
 }
 
 /// Load the chip database. Boxed so callers stay backend-agnostic once a
@@ -885,6 +909,7 @@ fn write_to_programmer<R: Read + Seek>(
     rep: &mut dyn Reporter,
 ) -> Result<()> {
     if !dry_run {
+        check_mutation_link(prog)?;
         rep.event(&Event::Stage("Checking chip ID".into()));
         if std::env::var_os("MINIPRO_REQUIRE_CHIP_ID").is_some() && dev.chip_id_bytes == 0 {
             return Err(Error::Unsupported(
@@ -1104,6 +1129,7 @@ fn erase_with_programmer(
     dev: &minipro_core::device::Device,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
+    check_mutation_link(prog)?;
     rep.event(&Event::Stage("Checking chip ID".into()));
     validate_chip_before_mutation(prog, dev, false, rep)?;
 
@@ -1206,6 +1232,7 @@ fn run_update(file: &Path, confirm: bool, rep: &mut dyn Reporter) -> Result<()> 
              do not disconnect the programmer while an update runs",
         ));
     }
+    check_mutation_link(&*prog)?;
     let fw = prog
         .firmware()
         .ok_or(Error::Unsupported("this programmer has no firmware update"))?;
@@ -1819,6 +1846,21 @@ mod tests {
     }
 
     #[test]
+    fn mutation_policy_is_scoped_to_macos_t76_superspeed() {
+        use minipro_core::transport::LinkSpeed;
+        assert!(mutation_link_policy(true, "T76", LinkSpeed::Super).is_err());
+        for (mac, model, link) in [
+            (true, "T76", LinkSpeed::High),
+            (true, "T76", LinkSpeed::Full),
+            (false, "T76", LinkSpeed::Super),
+            (true, "T48", LinkSpeed::Super),
+            (true, "T56", LinkSpeed::Super),
+        ] {
+            assert!(mutation_link_policy(mac, model, link).is_ok());
+        }
+    }
+
+    #[test]
     fn usb_diagnostic_profile_is_explicit_and_not_a_global_guard_override() {
         let cli = Cli::try_parse_from(["minipro", "--json", "usb-diagnose"]).unwrap();
         assert!(matches!(
@@ -2260,6 +2302,38 @@ mod tests {
             open_pins: None,
         };
         let mut image = std::io::Cursor::new(vec![0xff; 8]);
+        #[cfg(target_os = "macos")]
+        {
+            // The native CI runner proves the policy is enforced before even
+            // BEGIN_TRANS, not just before the final erase/write method.
+            let mut usb3 = make_fake(0x1234);
+            usb3.info.link = LinkSpeed::Super;
+            assert!(write_to_programmer(
+                &mut usb3,
+                &dev,
+                &mut image,
+                false,
+                false,
+                false,
+                false,
+                &mut Silent
+            )
+            .is_err());
+            assert!(erase_with_programmer(&mut usb3, &dev, &mut Silent).is_err());
+            assert!(usb3.actions.is_empty());
+            write_to_programmer(
+                &mut usb3,
+                &dev,
+                &mut image,
+                true,
+                false,
+                false,
+                false,
+                &mut Silent,
+            )
+            .unwrap();
+            assert!(!usb3.actions.contains(&"write") && !usb3.actions.contains(&"erase"));
+        }
         let mut checked = make_fake(0x1234);
         let setup = check_setup_with_programmer(&mut checked, &dev, &mut Silent).unwrap();
         assert_eq!(setup["chip_id_checked"], true);

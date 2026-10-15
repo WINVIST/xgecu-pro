@@ -136,19 +136,22 @@ in the app to work offline.
 
 The supplied USB cable worked directly on the target MacBook Pro M3 at USB
 High Speed for T76 detection and repeated full MX66L1G45G reads. If another
-connection negotiates SuperSpeed, the current macOS T76 backend reports a
-diagnostic because bulk transfers have failed in earlier tests. A USB 2.0
-cable or hub remains a High Speed fallback. No ISP/ICSP cable is needed for
+connection negotiates SuperSpeed, build 6 allows connection, reads and comparison
+to validate chip transfers. The user's Wavlink/M3 Pro/T76 firmware 00.1.18 passed
+four USB3 system-info exchanges without configuration cycling. Programming and
+erase at SuperSpeed still await full chip-read validation; use a USB 2.0 cable
+or hub for those operations. No ISP/ICSP cable is needed for
 this socket-based workflow. See [HARDWARE-VALIDATION.md](HARDWARE-VALIDATION.md)
 for the recorded result and remaining checks.
 
 For USB 3 connection problems, open **USB Diagnostics…**. It tests read-only
-system-info exchanges without the normal compatibility guard and offers an
-optional device U1/U2 experiment. Save a report for each connection/profile,
-unplugging and reconnecting before each test. This does not enable SuperSpeed
-chip operations. See [USB3 evidence and next steps](../docs/ch569-usb3-notes.md).
+system-info exchanges and offers an optional USB sleep experiment (advanced).
+Save a report for each connection/profile, unplugging and reconnecting before
+each test. This does not enable SuperSpeed programming.
+See [USB3 evidence and next steps](../docs/ch569-usb3-notes.md).
 
-Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
+Connect the T76 and click **Connect / Refresh**. High Speed supports the
+existing workflow; SuperSpeed is currently available for read validation.
 For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.
 The programmer reads its JEDEC ID and the app lists all SOIC16 entries with
 that ID in the selected database. If there is one entry, it is selected;
