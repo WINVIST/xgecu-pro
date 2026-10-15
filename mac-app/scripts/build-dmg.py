@@ -110,8 +110,20 @@ def verify_dmg(image, layout):
         with tempfile.TemporaryDirectory(prefix="xgecu-dmg-copy-") as temporary:
             installed = Path(temporary) / layout["appName"]
             run("/usr/bin/ditto", str(app), str(installed))
+            helper = installed / "Contents" / "Resources" / "minipro"
+            # Exercise the documented first-launch commands on this temporary
+            # copy only, including quarantine inherited by the nested helper.
+            quarantine = "com.apple.quarantine"
+            for target in (installed, helper):
+                os.setxattr(target, quarantine, b"0081;5f000000;XGecuPro-CI;")
             run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(installed))
-            run(str(installed / "Contents" / "Resources" / "minipro"), "--version")
+            run("/usr/bin/xattr", "-dr", quarantine, str(installed))
+            for target in (installed, helper):
+                if quarantine in os.listxattr(target):
+                    raise ValueError(f"Quarantine removal failed: {target}")
+            run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(installed))
+            run(str(helper), "--version")
+            print("Copied app signature, recursive quarantine removal and helper: verified")
     finally:
         detach(device)
 

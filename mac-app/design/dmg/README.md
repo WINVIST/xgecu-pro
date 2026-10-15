@@ -54,7 +54,10 @@ and creates a compressed, read-only image.
 Before publishing an output file, the script verifies the image, mounts it
 read-only, checks the Applications link, visible contents, background and
 stored icon positions, verifies the app signature, copies the app to a temporary
-directory and checks that copy and its bundled CLI. It detaches the image in
+directory and checks that copy and its bundled CLI. It sets test
+quarantine on the copy and helper, verifies the signature, runs the documented
+recursive app-only `xattr` command, confirms removal and checks the signature
+again before running the CLI. It detaches the image in
 a finally block. The script refuses existing outputs and personal offline
 apps with a bundled proprietary database.
 

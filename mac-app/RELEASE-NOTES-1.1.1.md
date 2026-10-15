@@ -8,7 +8,8 @@ XGecu Pro 1.1.1 adds a native drag-to-Applications installation experience.
 - The installation screen shows first-launch signature/quarantine commands
   for this ad hoc build; a separate text download makes them easy to copy.
 - macOS CI verifies the disk image, saved Finder layout, Applications link,
-  app signatures and a copied-out app with its bundled CLI before publishing.
+  app signatures, recursive quarantine removal and a copied-out app with its
+  bundled CLI before publishing.
 
 Requires Apple Silicon and macOS 26 or later. The app and helper are ad hoc
 signed; this release has no Developer ID signature or Apple notarization.
