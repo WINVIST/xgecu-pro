@@ -1,0 +1,2 @@
+# Build-time only; MIT licensed. No extra dependency in the installed app.
+dmgbuild==1.6.7

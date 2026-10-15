@@ -1,0 +1,57 @@
+{
+  "contract": "README.md: static preview of a fixed 720x540 Finder content layout; real app left, Applications link right, English instructions and existing product icon. This record validates artwork preview only.",
+  "targetViewports": [
+    "1280x720",
+    "390x844"
+  ],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Browser accessibility tree exposes the full installation, conditional first-launch commands and signature prerequisite. The copyable instructions link has visible keyboard focus. Decorative icons are hidden; no animation or keyboard traps. Native Finder keyboard and dark-mode behavior remain untested on Windows."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "Inspected both screenshots. The desktop preview shows the full fixed layout; the narrow preview scales the composition proportionally and wraps its explanatory note without horizontal overflow. The native installer is a desktop Finder window, not a mobile interface."
+  },
+  "contentStates": {
+    "loading": {
+      "status": "not-applicable",
+      "reason": "Static local artwork; both preview images finished loading in the observed browser state. No application loading UI."
+    },
+    "empty": {
+      "status": "not-applicable",
+      "reason": "The static preview always depicts exactly two items and has no data-dependent empty state."
+    },
+    "error": {
+      "status": "not-applicable",
+      "reason": "Preview cannot copy files. Real copy errors belong to Finder and need target-Mac validation."
+    },
+    "partial": {
+      "status": "not-applicable",
+      "reason": "There is no asynchronous content or partial-result state in this static design."
+    },
+    "success": {
+      "status": "not-applicable",
+      "reason": "Preview does not perform an installation or claim success. Finder owns copy completion in the real DMG."
+    },
+    "permission": {
+      "status": "not-applicable",
+      "reason": "Static preview requests no permission. Finder and Gatekeeper prompts remain native and untested here."
+    }
+  },
+  "renderedEvidence": [
+    {
+      "viewport": "1280x720",
+      "artifact": "preview-desktop.jpg",
+      "observation": "Full desktop layout inspected: two icons and arrow aligned, English instructions and signature/quarantine command chain readable, separate copyable-instructions link visible."
+    },
+    {
+      "viewport": "390x844",
+      "artifact": "preview-narrow.jpg",
+      "observation": "Whole composition scales without clipping or horizontal overflow; explanatory preview note remains readable. This is a layout overview, not mobile installation UI."
+    }
+  ],
+  "nativeValidation": {
+    "status": "untested",
+    "reason": "Current host is Windows. macOS DMG build, mount, stored layout verification, real Finder rendering, drag/copy, keyboard operation and Gatekeeper acceptance must run on macOS. CI packaging checks and target-Mac instructions are included."
+  }
+}

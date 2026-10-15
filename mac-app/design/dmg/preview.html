@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XGecu Pro — DMG layout preview</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #d9e0e8; color: #243247; font: 14px/1.5 Arial, sans-serif; }
+  main { width: fit-content; max-width: 100%; margin: 64px auto; padding: 0 20px; }
+  .window { width: 720px; max-width: 100%; overflow: hidden; border: 1px solid #aeb9c5; border-radius: 12px; box-shadow: 0 24px 65px #23364e26, 0 2px 5px #23364e12; }
+  .titlebar { height: 38px; display: flex; align-items: center; justify-content: center; position: relative; background: #f0f1f3; border-bottom: 1px solid #d6dbe1; font-size: 13px; font-weight: 600; }
+  .lights { display: flex; gap: 8px; position: absolute; left: 16px; }
+  .lights span { width: 12px; height: 12px; border: 1px solid #0002; border-radius: 50%; }
+  .lights span:nth-child(1) { background: #ff6059; } .lights span:nth-child(2) { background: #febd2e; } .lights span:nth-child(3) { background: #28c840; }
+  .canvas { position: relative; width: 100%; aspect-ratio: 720/540; background: url('background.png') center / 100% 100%; container-type: inline-size; }
+  figure { position: absolute; margin: 0; width: 25%; text-align: center; transform: translate(-50%, -64px); top: 44.444444%; color: #202b39; }
+  figure:first-child { left: 26.388889%; } figure:nth-child(2) { left: 73.611111%; }
+  figure img { display: block; margin: 0 auto; width: 128px; height: 128px; max-width: 100%; }
+  figcaption { margin-top: 4px; font-size: 13px; }
+  .note { max-width: 680px; margin: 20px 0 0; font-size: 13px; color: #46576c; }
+  .note strong { color: #243247; }
+  a { color: #0065b8; text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid #087ee3; outline-offset: 4px; border-radius: 2px; }
+  @media(max-width:760px) {
+    main { margin: 24px auto; padding: 0 12px; width: 100%; }
+    figure { transform: translate(-50%, -8.888889cqw); }
+    figure img { width: 17.777778cqw; height: 17.777778cqw; }
+    figcaption { font-size: 1.805556cqw; margin-top: .555556cqw; }
+  }
+</style>
+<main>
+  <section class="window" aria-label="Installation layout preview">
+    <div class="titlebar"><div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>XGecu Pro</div>
+    <div class="canvas" role="img" aria-label="XGecu Pro installation: drag the app on the left to Applications on the right. First launch: this build is ad hoc signed, not notarized. If macOS blocks launch, verify the download checksum. Then verify the app with codesign --verify --deep --strict /Applications/XGecuPro.app. Only if it succeeds, run xattr -dr com.apple.quarantine /Applications/XGecuPro.app, then open the app. Copyable commands are in XGecuPro-First-Launch.txt in the GitHub release.">
+      <figure aria-hidden="true"><img src="../app-icon/XGecuPro-icon-1024.png" alt=""><figcaption>XGecuPro</figcaption></figure>
+      <figure aria-hidden="true"><img src="applications-preview.svg" alt=""><figcaption>Applications</figcaption></figure>
+    </div>
+  </section>
+  <p class="note"><strong>Layout preview.</strong> In the DMG, both icons are real Finder items. The Applications folder and window chrome follow your Mac’s appearance. This preview does not install the app. <a href="XGecuPro-First-Launch.txt">Copy first-launch commands</a>.</p>
+</main>
+</html>

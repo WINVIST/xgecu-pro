@@ -6,6 +6,7 @@
  objects = {
 
 /* Begin PBXBuildFile section */
+  A10000000000000000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* Assets.xcassets */; };
   A10000000000000000000001 /* XGecuProApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* XGecuProApp.swift */; };
   A10000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppModel.swift */; };
   A10000000000000000000003 /* MiniProRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* MiniProRunner.swift */; };
@@ -15,6 +16,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+  A20000000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = ../Assets.xcassets; sourceTree = "<group>"; };
   A20000000000000000000001 /* XGecuProApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XGecuProApp.swift; sourceTree = "<group>"; };
   A20000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
   A20000000000000000000003 /* MiniProRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniProRunner.swift; sourceTree = "<group>"; };
@@ -32,7 +34,7 @@
   };
   A30000000000000000000002 /* XGecuPro */ = {
    isa = PBXGroup;
-   children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007);
+   children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007, A20000000000000000000008);
    path = XGecuPro/Sources;
    sourceTree = "<group>";
   };
@@ -48,7 +50,7 @@
   A40000000000000000000001 /* XGecuPro */ = {
    isa = PBXNativeTarget;
    buildConfigurationList = A70000000000000000000002;
-   buildPhases = (A50000000000000000000001, A50000000000000000000002);
+   buildPhases = (A50000000000000000000001, A50000000000000000000003, A50000000000000000000002);
    buildRules = ();
    dependencies = ();
    name = XGecuPro;
@@ -78,6 +80,15 @@
    targets = (A40000000000000000000001);
   };
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+  A50000000000000000000003 /* Resources */ = {
+   isa = PBXResourcesBuildPhase;
+   buildActionMask = 2147483647;
+   files = (A10000000000000000000008 /* Assets.xcassets in Resources */);
+   runOnlyForDeploymentPostprocessing = 0;
+  };
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
   A50000000000000000000001 /* Sources */ = {
@@ -110,14 +121,15 @@
    isa = XCBuildConfiguration;
    buildSettings = {
     ARCHS = arm64;
+    ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
     CODE_SIGNING_ALLOWED = NO;
-    CURRENT_PROJECT_VERSION = 3;
+    CURRENT_PROJECT_VERSION = 4;
     GENERATE_INFOPLIST_FILE = YES;
     INFOPLIST_KEY_CFBundleDevelopmentRegion = en;
     INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
     LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
     MACOSX_DEPLOYMENT_TARGET = 26.0;
-    MARKETING_VERSION = 1.1.0;
+    MARKETING_VERSION = 1.1.1;
     PRODUCT_BUNDLE_IDENTIFIER = ru.winvist.xgecupro;
     PRODUCT_NAME = "$(TARGET_NAME)";
     SDKROOT = macosx;
@@ -129,14 +141,15 @@
    isa = XCBuildConfiguration;
    buildSettings = {
     ARCHS = arm64;
+    ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
     CODE_SIGNING_ALLOWED = NO;
-    CURRENT_PROJECT_VERSION = 3;
+    CURRENT_PROJECT_VERSION = 4;
     GENERATE_INFOPLIST_FILE = YES;
     INFOPLIST_KEY_CFBundleDevelopmentRegion = en;
     INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
     LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
     MACOSX_DEPLOYMENT_TARGET = 26.0;
-    MARKETING_VERSION = 1.1.0;
+    MARKETING_VERSION = 1.1.1;
     PRODUCT_BUNDLE_IDENTIFIER = ru.winvist.xgecupro;
     PRODUCT_NAME = "$(TARGET_NAME)";
     SDKROOT = macosx;

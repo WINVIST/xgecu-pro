@@ -1,0 +1,35 @@
+XGecu Pro 1.1.1 - first launch on macOS
+
+1. Download only from https://github.com/WINVIST/xgecu-pro/releases/tag/v1.1.1
+   and verify the matching SHA-256 file before opening the download.
+   From the folder containing both files, run:
+
+   shasum -a 256 -c XGecuPro-macOS-arm64.dmg.sha256
+
+   For the ZIP alternative:
+   shasum -a 256 -c XGecuPro-macOS-arm64.zip.sha256
+
+   Stop if the checksum does not report OK.
+
+2. Open the verified DMG and drag XGecuPro to Applications. Wait for copying
+   to finish and eject the volume. For the ZIP, extract and copy the app.
+
+3. Try opening the installed app from Applications.
+
+This build has an ad hoc signature but no Apple Developer ID or notarization.
+If macOS blocks it, Apple's normal approval route is System Settings >
+Privacy & Security > Open Anyway after the first launch attempt:
+https://support.apple.com/102445
+
+If macOS reports a damaged app, and the checksum passed, verify the installed
+app's signature first. On your own unmanaged Mac, if you trust this exact
+release, the following chained commands remove this app's quarantine only
+after its signature verification succeeds, then open the app:
+
+codesign --verify --deep --strict /Applications/XGecuPro.app &&
+xattr -dr com.apple.quarantine /Applications/XGecuPro.app &&
+open /Applications/XGecuPro.app
+
+Paste all three lines together into Terminal. Stop if signature verification
+fails. The commands do not require sudo and do not add Apple notarization.
+On a managed Mac, follow the administrator's policy if it prevents approval.

@@ -29,9 +29,12 @@ are selectable, but that alone does not establish hardware validation.
 
 ### Install
 
-Download `XGecuPro-macOS-arm64.zip` and its `.sha256` file from the
-[latest release](https://github.com/WINVIST/xgecu-pro/releases). Verify the
-checksum, extract the app, and move it to Applications. The app is ad hoc
+Download `XGecuPro-macOS-arm64.dmg` and its `.sha256` file when available from
+the [latest release](https://github.com/WINVIST/xgecu-pro/releases). Verify
+the checksum, open the DMG, and drag the app to Applications. Eject the image
+and launch the installed copy from Applications. Older releases and the
+alternative ZIP require extracting the app and moving it to Applications.
+The app is ad hoc
 signed and is not Apple notarized; follow the [install guide](mac-app/README.md)
 for verification and macOS quarantine troubleshooting.
 
