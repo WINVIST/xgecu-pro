@@ -136,11 +136,13 @@ in the app to work offline.
 
 The supplied USB cable worked directly on the target MacBook Pro M3 at USB
 High Speed for T76 detection and repeated full MX66L1G45G reads. If another
-connection negotiates SuperSpeed, build 6 allows connection, reads and comparison
-to validate chip transfers. The user's Wavlink/M3 Pro/T76 firmware 00.1.18 passed
-four USB3 system-info exchanges without configuration cycling. Programming and
-erase at SuperSpeed still await full chip-read validation; use a USB 2.0 cable
-or hub for those operations. No ISP/ICSP cable is needed for
+connection negotiates SuperSpeed, build 8 handles missing interfaces even when
+GET_CONFIGURATION stalls. On Wavlink/M3 Pro/T76 firmware 00.1.18, the user
+confirmed a full 64 MiB MX25L51245G comparison against the Digma-route dump.
+Build 9 permits chip programming and erase at SuperSpeed with the existing ID
+checks, confirmations and programming readback; actual USB3 write/erase still
+require a hardware test on a disposable part. Updates to the programmer's own
+firmware on macOS T76 still require a USB 2.0 cable or hub. No ISP/ICSP cable is needed for
 this socket-based workflow. See [HARDWARE-VALIDATION.md](HARDWARE-VALIDATION.md)
 for the recorded result and remaining checks.
 
@@ -160,8 +162,8 @@ state. This compatibility path runs during connection, before any chip session.
 Working interfaces, measured nonzero configuration, timeout and disconnect do
 not trigger it. USB Diagnostics records the reason, claim result and readback.
 
-Connect the T76 and click **Connect / Refresh**. High Speed supports the
-existing workflow; SuperSpeed is currently available for read validation.
+Connect the T76 and click **Connect / Refresh**. High Speed and SuperSpeed
+expose the same database-qualified chip operations.
 For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.
 The programmer reads its JEDEC ID and the app lists all SOIC16 entries with
 that ID in the selected database. If there is one entry, it is selected;

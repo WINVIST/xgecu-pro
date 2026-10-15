@@ -492,23 +492,23 @@ pub(crate) fn open_programmer() -> Result<Box<dyn Programmer>> {
     Ok(prog)
 }
 
-fn check_mutation_link(prog: &dyn Programmer) -> Result<()> {
-    mutation_link_policy(
+fn check_firmware_update_link(prog: &dyn Programmer) -> Result<()> {
+    firmware_update_link_policy(
         cfg!(target_os = "macos"),
         &prog.info().model,
         prog.info().link,
     )
 }
 
-fn mutation_link_policy(
+fn firmware_update_link_policy(
     is_macos: bool,
     model: &str,
     link: minipro_core::transport::LinkSpeed,
 ) -> Result<()> {
     if is_macos && model == "T76" && link == minipro_core::transport::LinkSpeed::Super {
         return Err(Error::Unsupported(
-            "T76 USB 3 programming, erase and firmware updates await chip-transfer validation; \
-             read and compare a full dump first; use a USB 2.0 cable or hub for programming",
+            "T76 firmware updates over USB 3 on macOS remain unvalidated; \
+             use a USB 2.0 cable or hub to update the programmer firmware",
         ));
     }
     Ok(())
@@ -909,7 +909,6 @@ fn write_to_programmer<R: Read + Seek>(
     rep: &mut dyn Reporter,
 ) -> Result<()> {
     if !dry_run {
-        check_mutation_link(prog)?;
         rep.event(&Event::Stage("Checking chip ID".into()));
         if std::env::var_os("MINIPRO_REQUIRE_CHIP_ID").is_some() && dev.chip_id_bytes == 0 {
             return Err(Error::Unsupported(
@@ -1129,7 +1128,6 @@ fn erase_with_programmer(
     dev: &minipro_core::device::Device,
     rep: &mut dyn Reporter,
 ) -> Result<()> {
-    check_mutation_link(prog)?;
     rep.event(&Event::Stage("Checking chip ID".into()));
     validate_chip_before_mutation(prog, dev, false, rep)?;
 
@@ -1232,7 +1230,7 @@ fn run_update(file: &Path, confirm: bool, rep: &mut dyn Reporter) -> Result<()> 
              do not disconnect the programmer while an update runs",
         ));
     }
-    check_mutation_link(&*prog)?;
+    check_firmware_update_link(&*prog)?;
     let fw = prog
         .firmware()
         .ok_or(Error::Unsupported("this programmer has no firmware update"))?;
@@ -1846,9 +1844,9 @@ mod tests {
     }
 
     #[test]
-    fn mutation_policy_is_scoped_to_macos_t76_superspeed() {
+    fn firmware_update_guard_is_scoped_to_macos_t76_superspeed() {
         use minipro_core::transport::LinkSpeed;
-        assert!(mutation_link_policy(true, "T76", LinkSpeed::Super).is_err());
+        assert!(firmware_update_link_policy(true, "T76", LinkSpeed::Super).is_err());
         for (mac, model, link) in [
             (true, "T76", LinkSpeed::High),
             (true, "T76", LinkSpeed::Full),
@@ -1856,7 +1854,7 @@ mod tests {
             (true, "T48", LinkSpeed::Super),
             (true, "T56", LinkSpeed::Super),
         ] {
-            assert!(mutation_link_policy(mac, model, link).is_ok());
+            assert!(firmware_update_link_policy(mac, model, link).is_ok());
         }
     }
 
@@ -2193,11 +2191,17 @@ mod tests {
 
     #[test]
     fn destructive_operations_check_id_before_erase_or_write() {
+        use minipro_core::transport::LinkSpeed;
+        for link in [LinkSpeed::High, LinkSpeed::Super] {
+            assert_destructive_operation_order(link);
+        }
+    }
+
+    fn assert_destructive_operation_order(link: minipro_core::transport::LinkSpeed) {
         use minipro_core::caps::MemoryOps;
         use minipro_core::device::{flags, BlockReq, ChipId, Device};
         use minipro_core::error::FwVersion;
         use minipro_core::programmer::{Caps, ProgrammerInfo, Session};
-        use minipro_core::transport::LinkSpeed;
 
         struct Fake {
             info: ProgrammerInfo,
@@ -2293,7 +2297,7 @@ mod tests {
                 serial: String::new(),
                 mfg_date: String::new(),
                 device_code: String::new(),
-                link: LinkSpeed::High,
+                link,
                 voltage: 5.0,
                 bootloader: false,
             },
@@ -2302,38 +2306,6 @@ mod tests {
             open_pins: None,
         };
         let mut image = std::io::Cursor::new(vec![0xff; 8]);
-        #[cfg(target_os = "macos")]
-        {
-            // The native CI runner proves the policy is enforced before even
-            // BEGIN_TRANS, not just before the final erase/write method.
-            let mut usb3 = make_fake(0x1234);
-            usb3.info.link = LinkSpeed::Super;
-            assert!(write_to_programmer(
-                &mut usb3,
-                &dev,
-                &mut image,
-                false,
-                false,
-                false,
-                false,
-                &mut Silent
-            )
-            .is_err());
-            assert!(erase_with_programmer(&mut usb3, &dev, &mut Silent).is_err());
-            assert!(usb3.actions.is_empty());
-            write_to_programmer(
-                &mut usb3,
-                &dev,
-                &mut image,
-                true,
-                false,
-                false,
-                false,
-                &mut Silent,
-            )
-            .unwrap();
-            assert!(!usb3.actions.contains(&"write") && !usb3.actions.contains(&"erase"));
-        }
         let mut checked = make_fake(0x1234);
         let setup = check_setup_with_programmer(&mut checked, &dev, &mut Silent).unwrap();
         assert_eq!(setup["chip_id_checked"], true);
@@ -2396,6 +2368,38 @@ mod tests {
         let first_erase = right.actions.iter().position(|a| *a == "erase").unwrap();
         let first_write = right.actions.iter().position(|a| *a == "write").unwrap();
         assert!(first_id < first_erase && first_erase < first_write);
+        let first_read = right.actions.iter().position(|a| *a == "read").unwrap();
+        assert!(
+            first_write < first_read,
+            "writes must be verified by readback"
+        );
+
+        // The fake drops writes and returns erased bytes: a non-FF image must
+        // fail readback on both link speeds, rather than report success.
+        let mut dropped = make_fake(0x1234);
+        let mut nonblank = std::io::Cursor::new(vec![0xaa; 8]);
+        assert_eq!(
+            write_to_programmer(
+                &mut dropped,
+                &dev,
+                &mut nonblank,
+                false,
+                false,
+                false,
+                false,
+                &mut Silent,
+            )
+            .unwrap_err()
+            .code(),
+            "verify_failed"
+        );
+
+        let mut erased = make_fake(0x1234);
+        erase_with_programmer(&mut erased, &dev, &mut Silent).unwrap();
+        assert_eq!(
+            erased.actions,
+            ["begin", "identify", "end", "begin", "erase", "end"]
+        );
 
         // A malformed source must refuse even with a matching chip, before
         // protect/erase/write. Dry-run has no mutation commands either.

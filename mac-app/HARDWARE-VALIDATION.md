@@ -12,8 +12,8 @@ completed record in a private location.
    speed. Optionally save the listing with
    `system_profiler SPUSBDataType > usb-direct.txt`.
 2. In XGecu Pro, click **Connect / Refresh**. Record the displayed model,
-   firmware, USB link, and any error text. Build 6 supports SuperSpeed connection
-   and reads for validation; programming and erase remain limited to High Speed.
+   firmware, USB link, and any error text. Build 9 permits chip operations at
+   SuperSpeed; programmer firmware updates on macOS T76 still require High Speed.
 3. If direct SuperSpeed does not work, connect the supplied cable through a
    USB 2.0 hub, if its connectors fit. Repeat the speed and Connect / Refresh
    checks. Record which connection succeeds. Do not infer direct-cable support
@@ -95,6 +95,28 @@ replace the buffer. The app now labels the source file and source chip and
 warns when the selected chip differs. Use **Read…** or **Open File…** to inspect
 the MX25 dump in Hex; the shell size, hash, and comparison output above are
 the evidence for the two MX25 files.
+
+### Build 8: full MX25 comparison over Wavlink SuperSpeed
+
+On 2026-10-15, the user reported that build 8 connected through
+Mac → Wavlink WL-UG69PD25 Pro → T76 without the Digma hub. The supplied app
+screenshot shows T76 firmware `00.1.18` and `USB ss`. After the requested
+cross-route comparison with the dump saved through Digma, **Verify Against
+File…** reported “Chip contents match the file.” The user explicitly confirmed
+`MX25L51245G`, 64 MiB, and the Wavlink-only route. This command requires two
+stable full reads and a match against the selected file, establishing a
+successful 67,108,864-byte code-region comparison over SuperSpeed on the
+MacBook Pro 16-inch M3 Pro / macOS 26.7.1 (25G241). No new file hash or raw
+diagnostic report was supplied for this pass; do not assign the earlier dump
+hash to it without measurement.
+
+Build 9 removes the temporary SuperSpeed chip write/erase block in the GUI and
+CLI, preserving database eligibility, ID checks before mutation, confirmations
+and mandatory programming readback. Firmware updates to the T76 itself remain
+blocked at macOS SuperSpeed. USB3 programming/erase, UGREEN, direct USB3 and
+repeated cold reconnects have not yet been validated. Test programming first
+on a disposable rewritable part with a retained backup; a read pass does not
+establish a successful write.
 
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 

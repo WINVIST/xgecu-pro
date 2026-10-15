@@ -42,7 +42,6 @@ final class AppModel: ObservableObject {
     @Published var bufferChip: String?
     @Published var isT76 = false
     @Published var usbLink = ""
-    var usb3ReadValidation: Bool { isT76 && usbLink == "ss" }
     @Published var bufferSize = 0
     @Published var bufferOffset = 0
     @Published var bufferDirty = false
@@ -106,7 +105,7 @@ final class AppModel: ObservableObject {
     }
 
     var canWriteSelected: Bool {
-        !usb3ReadValidation && ChipPolicy.canWrite(selectedChip, details: chipDetails, isT76: isT76)
+        ChipPolicy.canWrite(selectedChip, details: chipDetails, isT76: isT76)
     }
 
     var canVerifySelected: Bool {
@@ -114,7 +113,7 @@ final class AppModel: ObservableObject {
     }
 
     var canEraseSelected: Bool {
-        !usb3ReadValidation && ChipPolicy.canErase(selectedChip, details: chipDetails, isT76: isT76)
+        ChipPolicy.canErase(selectedChip, details: chipDetails, isT76: isT76)
     }
 
     func connect() {
@@ -135,8 +134,6 @@ final class AppModel: ObservableObject {
             self.deviceStatus = "\(model) · firmware \(firmware) · USB \(link)"
             if !self.isT76 {
                 self.status = "This version of the app supports only the T76."
-            } else if self.usb3ReadValidation {
-                self.status = "T76 connected over USB 3. Read and compare a full dump; programming still requires USB 2 while validation is pending."
             } else {
                 self.status = "T76 connected. Select a chip."
             }
@@ -731,10 +728,6 @@ final class AppModel: ObservableObject {
 
     private var readyForMutation: Bool {
         guard readyForChipOperation else { return false }
-        if usb3ReadValidation {
-            status = "USB 3 read validation: Read and Compare are available. Use a USB 2.0 cable or hub for programming and erase."
-            return false
-        }
         if !canWriteSelected {
             status = "Error: Programming requires a database electronic ID and a code region no larger than 2 GiB."
             return false

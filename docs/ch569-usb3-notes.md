@@ -18,7 +18,9 @@ not a fresh transfer failure. Ordinary opens also cycled configuration 0→1;
 diagnostics skipped it. Build 6 removes the cycle and allows normal connection,
 chip identification, reads and comparisons at SuperSpeed. Programming, erase
 and programmer firmware updates remain blocked on macOS T76 SuperSpeed pending
-full chip-transfer validation. USB2 and other platforms/models retain their policy.
+full chip-transfer validation in builds 6–8. Build 9 lifts the chip-operation
+block after the full read comparison below; programmer firmware updates stay
+guarded. USB2 and other platforms/models retain their policy.
 
 User reports on 2026-10-15: MacBook Pro 16-inch M3 Pro; report confirms macOS
 26.7.1 (25G241), T76 firmware 00.1.18. These are connection observations, not chip read/write
@@ -102,6 +104,23 @@ No raw CLEAR_FEATURE(HALT) is sent to EP0. A protocol control STALL is cleared
 by the next request as described in
 [nusb's transfer contract](https://github.com/kevinmehall/nusb/blob/v0.2.7/src/transfer/mod.rs#L27-L33).
 
+### Hardware follow-up and build 9
+
+The user reported successful build 8 connection without Digma; their screenshot
+shows firmware `00.1.18`, `USB ss`. The subsequent **Verify Against File…**
+reported “Chip contents match the file.” They explicitly confirmed
+`MX25L51245G`, 64 MiB, through Mac → Wavlink → T76, following the requested
+comparison against the Digma-route dump. The command requires two stable full
+reads plus file equality. This validates that specific full chip read route;
+it is not a write/erase, UGREEN, direct-USB3 or cold-reconnect result.
+
+Build 9 removes the temporary macOS T76 SuperSpeed guard for chip programming
+and erase. The same database/ID checks run before destructive commands at both
+speeds, and programming still requires full readback equality. Programmer
+firmware updates retain a separate macOS T76 SuperSpeed guard. Actual USB3
+write/erase validation remains pending on a disposable rewritable part with a
+retained backup.
+
 The normal transport maps an unavailable speed to High. The diagnostic records
 the OS-reported speed independently, leaving it null when unavailable.
 
@@ -167,14 +186,14 @@ See [Microsoft's U1/U2 transition description](https://learn.microsoft.com/en-us
 JSON `ok` means a report was produced, including when no device opened. Inspect
 `report.passed`, `report.error`, individual `probes` and `restore_error` for
 the actual result. Passing system-info does not validate chip transfers or
-enable SuperSpeed programming. The current build allows reads for validation.
+establish successful chip programming. Build 9 exposes chip operations after
+the user's separate full-read comparison above.
 
 ## Next decisions after real hardware results
 
-- Wavlink baseline passes: test build 6 normal Connect / Refresh repeatedly after
-  cold connects, then read a full chip twice through Wavlink. Compare with a dump
-  from the same unchanged chip through Digma. Reads already verify by a second
-  full read; also compare the cross-route SHA-256 before enabling USB3 mutation.
+- Wavlink full MX25 comparison passed in build 8. Test build 9 programming with
+  readback on a disposable rewritable part; separately check repeated cold
+  connects, direct USB3 and UGREEN. Preserve the original backups.
 - Only U1/U2 experiment passes: evaluate a scoped transport policy and test
   long reads, idle periods and reconnects before enabling it for chip operations.
 - Neither passes: compare a native

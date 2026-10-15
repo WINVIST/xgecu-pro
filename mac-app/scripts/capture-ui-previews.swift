@@ -29,15 +29,21 @@ struct CaptureUIPreviews {
             ("11-large-hex-buffer", true, 1, NSSize(width: 1180, height: 820)),
             ("12-local-buffer-work", false, 1, NSSize(width: 1180, height: 820)),
             ("13-usb-diagnostics", false, 0, NSSize(width: 700, height: 700)),
-            ("14-usb3-read-validation", false, 0, NSSize(width: 1020, height: 680)),
+            ("14-usb3-ready", false, 0, NSSize(width: 1020, height: 680)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
-            if name == "14-usb3-read-validation" {
+            if name == "14-usb3-ready" {
                 guard model.canReadSelected, model.canVerifySelected,
-                      !model.canWriteSelected, !model.canEraseSelected else {
-                    fatalError("USB3 validation must allow reads/compare and block programming/erase")
+                      model.canWriteSelected, model.canEraseSelected else {
+                    fatalError("USB3 must expose the same database-qualified chip operations as USB2")
                 }
+                model.isT76 = false
+                guard !model.canReadSelected, !model.canVerifySelected,
+                      !model.canWriteSelected, !model.canEraseSelected else {
+                    fatalError("A lost programmer connection must disable all chip operations")
+                }
+                model.isT76 = true
             }
             let screen = name == "13-usb-diagnostics"
                 ? AnyView(USBDiagnosticsView(model: model))
@@ -82,9 +88,9 @@ struct CaptureUIPreviews {
         let model = AppModel()
         guard name != "01-start" else { return model }
         model.isT76 = true
-        model.usbLink = name == "14-usb3-read-validation" ? "ss" : "hs"
+        model.usbLink = name == "14-usb3-ready" ? "ss" : "hs"
         model.deviceStatus = "T76 · firmware 00.1.07 · USB hs"
-        if name == "14-usb3-read-validation" {
+        if name == "14-usb3-ready" {
             model.deviceStatus = "T76 · firmware 00.1.18 · USB ss"
         }
         model.query = "MX25L512"
