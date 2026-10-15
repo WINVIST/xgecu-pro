@@ -115,11 +115,12 @@ def verify_dmg(image, layout):
             # copy only, including quarantine inherited by the nested helper.
             quarantine = "com.apple.quarantine"
             for target in (installed, helper):
-                os.setxattr(target, quarantine, b"0081;5f000000;XGecuPro-CI;")
+                run("/usr/bin/xattr", "-w", quarantine, "0081;5f000000;XGecuPro-CI;", str(target))
             run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(installed))
             run("/usr/bin/xattr", "-dr", quarantine, str(installed))
             for target in (installed, helper):
-                if quarantine in os.listxattr(target):
+                attributes = run("/usr/bin/xattr", str(target), stdout=subprocess.PIPE, text=True)
+                if quarantine in attributes.stdout.splitlines():
                     raise ValueError(f"Quarantine removal failed: {target}")
             run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(installed))
             run(str(helper), "--version")
