@@ -17,3 +17,4 @@ workspace = true
 minipro-core = { path = "../minipro-core" }
 nusb = "0.2.7"
 tracing.workspace = true
+serde.workspace = true

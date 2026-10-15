@@ -85,15 +85,15 @@ Cable notes from testing:
   `ioreg -rc IOUSBHostDevice -n 'XGecu T76' | grep UsbLinkSpeed` →
   `480000000` = High Speed (good), `5000000000` = SuperSpeed (still broken),
   `12000000` = fell back to USB 1.1 (swap cable).
-- A **USB 3.0 hub does not help** (it passes SuperSpeed through). Only a
-  USB-2-only cable or a USB-2-only hub forces the downgrade.
+- A USB 3.0 hub does not by itself force a downgrade. A USB-2-only cable or
+  USB-2-only hub does. Test actual bulk behavior separately for each USB3 route.
 
 > **Firmware caveat:** this unit runs **00.1.07** but `algorithm.xml` is built
 > for **00.1.17**; minipro warns the firmware is out of date. Bitstream-backed
 > operations may need a matching `algorithm.xml` (regenerate for 00.1.07) or a
 > firmware update to 00.1.17. See [Firmware note](#firmware-note).
 
-### The macOS USB blocker (root-caused)
+### The historical macOS USB blocker (cause under investigation)
 
 **Symptom.** `minipro --version` (which queries the attached programmer) returns:
 
@@ -102,17 +102,13 @@ IO error: bulk_transfer: LIBUSB_ERROR_IO
 IO error: expected 5 bytes but 0 bytes transferred
 ```
 
-**Root cause (confirmed at the IOKit level via `LIBUSB_DEBUG=4`).** The device
+**Captured failure (IOKit status via `LIBUSB_DEBUG=4`).** The device
 enumerates and does control transfers perfectly, but every **bulk** transfer to
 the command endpoint fails with a kernel status of **`kIOReturnNotResponding`
 (`0xe00002ed`, "device not responding")** at USB 3.0 **SuperSpeed**. That error
-is emitted by the Mac's **xHCI controller**, i.e. *below* libusb — the controller
-sent the token and the device gave no response at the SuperSpeed link layer. The
-likely mechanism is a SuperSpeed link-power-management (U1/U2) or burst
-disagreement between this Apple Silicon controller and the T76 — **since
-confirmed**: see [ch569-usb3-notes.md](ch569-usb3-notes.md) for the full
-root-cause research (firmware-serviced U1/U2 on the CH569, worst-case
-advertised exit latencies, strict Apple xHCI).
+comes from the host USB stack. It does not identify the failed link handshake.
+A SuperSpeed link-power-management (U1/U2) or burst disagreement is a hypothesis,
+not a confirmed cause. See [the updated evidence and diagnostic experiments](ch569-usb3-notes.md).
 
 What was verified:
 
@@ -131,9 +127,9 @@ What was verified:
 `clear_halt`, fresh reopen, a 115-iteration warming loop with control keepalives,
 a first-touch-after-re-enumeration test, and a faithful replay of the *one*
 transient success (a config-cycle that armed the endpoints exactly once, never
-reproducible cold). Because the error originates in the controller, swapping USB
-libraries or using Apple's native IOKit API would hit the same wall, and macOS
-exposes no user-space API to force a device's link speed down.
+reproducible cold). A native IOUSBHost comparison and device U1/U2 control test
+were not performed in this historical investigation. Their results cannot be
+inferred from the libusb error. No supported public API to force USB2 was found.
 
 **What's in the tree for it.** `src/usb_nix.c` `usb_open()` now cycles the T76's
 configuration (`0 → 1`) and retries the claim before use — this is the arming
@@ -141,15 +137,12 @@ sequence that produced the single success, guarded to VID/PID `0xA466:0x1A86` so
 it can't affect the TL866/T48/T56. It makes minipro robust for when the device is
 reachable, but does **not** by itself overcome the SuperSpeed controller failure.
 
-**The fix is physical:** force the T76 off SuperSpeed by connecting it through a
+**The verified workaround is physical:** force the T76 off SuperSpeed by connecting it through a
 **USB 2.0 hub** (High-Speed enumeration sidesteps the failing SuperSpeed bulk
-path; minipro treats link speed as cosmetic). Or move it to a **Linux host**. A
-Linux VM *on this Mac* (OrbStack, UTM host-USB, Parallels, Docker Desktop) does
-**not** help: all are built on Apple's Virtualization.framework, which cannot
-capture a physical USB device or pass through the xHCI controller, so macOS
-keeps ownership of the physical link and the guest's Linux quirks never reach
-it. See [ch569-usb3-notes.md §6](ch569-usb3-notes.md#6-a-linux-vm-on-this-mac-orbstack-etc-does-not-bypass-it).
-A native Linux host, or the physical USB 2.0 downgrade, remain the only fixes.
+path). A Linux host is another comparison target. A VM's USB forwarding need not
+change the macOS physical link's policy, so it is not an established remedy.
+Software candidates and the current diagnostic workflow are described in
+[ch569-usb3-notes.md](ch569-usb3-notes.md).
 
 ### Recommended path to actually program a chip
 

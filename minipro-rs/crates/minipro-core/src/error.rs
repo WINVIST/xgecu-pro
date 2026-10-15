@@ -136,9 +136,12 @@ impl Error {
     /// A short, actionable remediation for the human/JSON layers, when one exists.
     pub fn hint(&self) -> Option<&'static str> {
         match self {
-            Error::Usb(_) => {
-                Some("on macOS + T76, connect via a USB 2.0 cable to force High Speed")
-            }
+            Error::Usb(message) if message.starts_with("claim interface") => Some(
+                "close other programmer apps; unplug the cable from the T76 until PWR goes out, then reconnect and refresh",
+            ),
+            Error::Usb(_) => Some(
+                "check the USB connection; if T76 bulk transfers fail at SuperSpeed on macOS, try a USB 2.0 cable or hub",
+            ),
             Error::ChipIdMismatch { .. } => Some("add --force to read anyway"),
             Error::BadContact(_) => {
                 Some("reseat/clean the pins, or --skip-pincheck to read anyway")
@@ -250,5 +253,13 @@ mod tests {
         let e = Error::from(std::io::Error::other("boom"));
         assert!(e.source().is_some());
         assert_eq!(e.to_string(), "io: boom");
+    }
+
+    #[test]
+    fn missing_interface_hint_does_not_diagnose_a_bulk_speed_failure() {
+        let error = Error::Usb("claim interface 0: interface not found".into());
+        let hint = error.hint().unwrap();
+        assert!(hint.contains("PWR"));
+        assert!(!hint.contains("SuperSpeed"));
     }
 }

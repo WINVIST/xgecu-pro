@@ -100,18 +100,22 @@ the recorded results with the original dumps.
   MX66L1G45G code region was programmed with backend readback verification;
   two subsequent full 128 MiB dumps matched by SHA-256 and external `cmp`.
   The MX25L51245G code region was read twice at 64 MiB; the dumps matched by
-  SHA-256 and external `cmp`, and Verify Against File reported a match. MX25
-  write/erase remains untested. The original MX66 pre-program backup remains
+  SHA-256 and external `cmp`, and Verify Against File reported a match. Build 9
+  also received a user-reported MX25 Program and Verify pass through UGREEN;
+  standalone erase/blank check remains untested. The original MX66 pre-program backup remains
   unconfirmed. Retain original backups before destructive actions on
   disposable examples. Earlier provisional
   `MX25L25645GMI-08G` support is not part of this acceptance target.
 - Support the supplied USB cable on the MacBook Pro M3. The user confirmed a
   direct connection with this cable at USB High Speed, including T76 detection
-  and repeated full reads of the MX66L1G45G. The current macOS SuperSpeed path fails
-  on T76 bulk transfers and is blocked with a diagnostic; it needs a
-  demonstrated firmware/host/hub workaround and repeated live transfers
-  before it can be marked supported. The USB 2.0 fallback does not require a
-  different programmer or an ISP connection.
+  and repeated full reads of the MX66L1G45G. Build 8 fixes the observed missing
+  interface/GET_CONFIGURATION STALL on Wavlink. The user confirmed a full 64 MiB
+  MX25L51245G comparison over USB SuperSpeed against the Digma-route dump.
+  Build 9 enables chip programming/erase with existing ID/readback checks;
+  the user subsequently reported a programming/readback pass through UGREEN.
+  Wavlink programming, standalone erase/blank check, direct USB3 and repeated
+  cold-connect acceptance remain pending. Programmer firmware updates still require USB2 on macOS T76.
+  The USB 2.0 fallback does not require a different programmer or ISP connection.
 
 ## 3. Additional tools already in source
 

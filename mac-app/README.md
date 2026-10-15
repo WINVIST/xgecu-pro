@@ -136,13 +136,43 @@ in the app to work offline.
 
 The supplied USB cable worked directly on the target MacBook Pro M3 at USB
 High Speed for T76 detection and repeated full MX66L1G45G reads. If another
-connection negotiates SuperSpeed, the current macOS T76 backend reports a
-diagnostic because bulk transfers have failed in earlier tests. A USB 2.0
-cable or hub remains a High Speed fallback. No ISP/ICSP cable is needed for
+connection negotiates SuperSpeed, build 8 handles missing interfaces even when
+GET_CONFIGURATION stalls. On Wavlink/M3 Pro/T76 firmware 00.1.18, the user
+confirmed a full 64 MiB MX25L51245G comparison against the Digma-route dump.
+Build 9 permits chip programming and erase at SuperSpeed with the existing ID
+checks, confirmations and programming readback. The user subsequently reported
+a successful MX25 programming/readback pass through UGREEN. Wavlink programming,
+standalone erase/blank check and direct USB3 remain separate acceptance targets.
+Updates to the programmer's own
+firmware on macOS T76 still require a USB 2.0 cable or hub. No ISP/ICSP cable is needed for
 this socket-based workflow. See [HARDWARE-VALIDATION.md](HARDWARE-VALIDATION.md)
 for the recorded result and remaining checks.
 
-Connect the T76 over a working High Speed link. Click **Connect / Refresh**.
+For connection problems at any USB speed, open **USB Diagnostics…**. Leave one
+T76 connected, remove the chip and reconnect the cable at the programmer before
+each test. Choose a generic connection type (or **Not sure**) and optionally
+describe the cable/adapter chain. **Test Connection** checks programmer detection,
+interface opening and four information replies across idle pauses. The result
+shows the OS-measured speed, firmware and advice for the actual failure stage.
+It does not certify chip programming. The optional USB sleep experiment is under
+**Advanced test**. **Copy Report** and **Save Report…** export technical details
+with app/macOS version and explicitly user-provided connection notes; there is
+no automatic upload, programmer serial number or chip contents. Start a **New
+Test** to change the connection description without relabeling an existing report.
+See [USB3 evidence and next steps](../docs/ch569-usb3-notes.md).
+
+On macOS T76, an absent interface plus a real GET_CONFIGURATION value of zero
+permits selecting the unique declared configuration. Build 8 additionally handles
+the measured GET_CONFIGURATION STALL: when the OS has no interfaces/no active
+configuration descriptor and exactly one valid configuration is declared, select
+it once through macOS, then verify the actual interface and command exchange.
+The prior device state stays unknown on STALL; selection can reset USB endpoint
+state. This compatibility path runs during connection, before any chip session.
+Working interfaces, measured nonzero configuration, timeout and disconnect do
+not trigger it. USB Diagnostics records the reason, claim result and readback.
+
+Connect the T76 and click **Connect / Refresh**. High Speed and SuperSpeed
+expose the same database-qualified chip operations.
 For a serial flash in a verified SOIC16 adapter, click **Auto Detect SOIC16**.
 The programmer reads its JEDEC ID and the app lists all SOIC16 entries with
 that ID in the selected database. If there is one entry, it is selected;
@@ -243,8 +273,9 @@ raw reads matched by SHA-256 and external `cmp`, and Verify Against File
 reported a match. These results cover the current programmed code region;
 the pre-program original image/dump remains unconfirmed. For
 `MX25L51245G@SOIC16`, two full 64 MiB reads matched by SHA-256 and external
-`cmp`, and Verify Against File reported a match. MX25 programming and erase
-have not yet been validated on the target Mac. The Hex panel labels the buffer
+`cmp`, and Verify Against File reported a match. A later build 9 test reported
+successful MX25 programming with readback through UGREEN; standalone erase and
+blank check remain untested. The Hex panel labels the buffer
 source and warns if it was read from a chip other than the selected one;
 selecting another chip does not replace the buffer.
 Preserve two matching original dumps before attempting any destructive operation.

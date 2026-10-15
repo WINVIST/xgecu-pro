@@ -173,6 +173,12 @@ enum Command {
     },
     /// Show programmer identity and firmware status
     Info,
+    /// Test T76 USB system-info exchanges without chip/socket operations
+    UsbDiagnose {
+        /// Experimental: disable device-initiated U1/U2 during this test only
+        #[arg(long)]
+        disable_device_u1_u2: bool,
+    },
     /// Check chip identity and supported socket diagnostics without mutation
     Check {
         /// Exact selected chip name
@@ -251,6 +257,7 @@ impl Command {
             Command::Blank { .. } => "blank",
             Command::Verify { .. } => "verify",
             Command::Info => "info",
+            Command::UsbDiagnose { .. } => "usb-diagnose",
             Command::Check { .. } => "check",
             Command::Search { .. } => "search",
             Command::Describe { .. } => "describe",
@@ -444,6 +451,9 @@ fn main() -> ExitCode {
             &mut *reporter_for(mode),
         ),
         Command::Info => run_info(db_dir, &mut *reporter_for(mode)),
+        Command::UsbDiagnose {
+            disable_device_u1_u2,
+        } => run_usb_diagnose(*disable_device_u1_u2, mode),
         Command::Check { chip } => run_check(db_dir, chip, mode),
         Command::Detect { like } => run_detect(db_dir, like, mode),
         Command::Logic { chip } => run_logic(db_dir, chip, mode),
@@ -470,7 +480,9 @@ fn main() -> ExitCode {
 /// With nothing plugged in this returns the transport's "no device" error.
 pub(crate) fn open_programmer() -> Result<Box<dyn Programmer>> {
     let tx = minipro_usb::UsbTransport::open_any()?;
-    tx.check_link()?; // macOS + SuperSpeed diagnosis, not a bare I/O error
+    // Detect with real system-info exchanges at every speed. A Wavlink/M3 Pro
+    // hardware report established that the blanket SuperSpeed rejection was
+    // too broad. Destructive operations retain their narrower policy below.
     let prog = minipro_proto::detect(Box::new(tx))?;
     if std::env::var("MINIPRO_REQUIRE_MODEL").ok().as_deref() == Some("T76")
         && prog.info().model != "T76"
@@ -478,6 +490,28 @@ pub(crate) fn open_programmer() -> Result<Box<dyn Programmer>> {
         return Err(Error::Unsupported("this application requires an XGecu T76"));
     }
     Ok(prog)
+}
+
+fn check_firmware_update_link(prog: &dyn Programmer) -> Result<()> {
+    firmware_update_link_policy(
+        cfg!(target_os = "macos"),
+        &prog.info().model,
+        prog.info().link,
+    )
+}
+
+fn firmware_update_link_policy(
+    is_macos: bool,
+    model: &str,
+    link: minipro_core::transport::LinkSpeed,
+) -> Result<()> {
+    if is_macos && model == "T76" && link == minipro_core::transport::LinkSpeed::Super {
+        return Err(Error::Unsupported(
+            "T76 firmware updates over USB 3 on macOS remain unvalidated; \
+             use a USB 2.0 cable or hub to update the programmer firmware",
+        ));
+    }
+    Ok(())
 }
 
 /// Load the chip database. Boxed so callers stay backend-agnostic once a
@@ -1109,6 +1143,27 @@ fn erase_with_programmer(
     Ok(())
 }
 
+fn run_usb_diagnose(disable_device_u1_u2: bool, mode: Mode) -> Result<()> {
+    use minipro_usb::diagnostic::{diagnose_t76, Profile};
+    let profile = if disable_device_u1_u2 {
+        Profile::DeviceU1U2Disabled
+    } else {
+        Profile::Baseline
+    };
+    let report = diagnose_t76(profile);
+    // `ok` means the report was generated, not that USB worked. Failed hardware
+    // tests are still exportable by the GUI; inspect `report.passed`.
+    let value = serde_json::json!({ "ok": true, "op": "usb-diagnose", "report": report });
+    match mode {
+        Mode::Json => println!("{value}"),
+        _ => println!(
+            "{}",
+            serde_json::to_string_pretty(&value).map_err(|e| Error::Usb(e.to_string()))?
+        ),
+    }
+    Ok(())
+}
+
 fn run_info(db_dir: Option<&Path>, rep: &mut dyn Reporter) -> Result<()> {
     let prog = open_programmer()?;
     let info = prog.info();
@@ -1175,6 +1230,7 @@ fn run_update(file: &Path, confirm: bool, rep: &mut dyn Reporter) -> Result<()> 
              do not disconnect the programmer while an update runs",
         ));
     }
+    check_firmware_update_link(&*prog)?;
     let fw = prog
         .firmware()
         .ok_or(Error::Unsupported("this programmer has no firmware update"))?;
@@ -1788,6 +1844,48 @@ mod tests {
     }
 
     #[test]
+    fn firmware_update_guard_is_scoped_to_macos_t76_superspeed() {
+        use minipro_core::transport::LinkSpeed;
+        assert!(firmware_update_link_policy(true, "T76", LinkSpeed::Super).is_err());
+        for (mac, model, link) in [
+            (true, "T76", LinkSpeed::High),
+            (true, "T76", LinkSpeed::Full),
+            (false, "T76", LinkSpeed::Super),
+            (true, "T48", LinkSpeed::Super),
+            (true, "T56", LinkSpeed::Super),
+        ] {
+            assert!(firmware_update_link_policy(mac, model, link).is_ok());
+        }
+    }
+
+    #[test]
+    fn usb_diagnostic_profile_is_explicit_and_not_a_global_guard_override() {
+        let cli = Cli::try_parse_from(["minipro", "--json", "usb-diagnose"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::UsbDiagnose {
+                disable_device_u1_u2: false
+            })
+        ));
+        let cli =
+            Cli::try_parse_from(["minipro", "usb-diagnose", "--disable-device-u1-u2"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::UsbDiagnose {
+                disable_device_u1_u2: true
+            })
+        ));
+        assert!(Cli::try_parse_from([
+            "minipro",
+            "write",
+            "chip",
+            "image.bin",
+            "--disable-device-u1-u2"
+        ])
+        .is_err());
+    }
+
+    #[test]
     fn fmt_selection_output_and_input() {
         // Output side: extension picks the format; explicit overrides win.
         assert_eq!(Fmt::Auto.for_output(Path::new("d.hex")), Format::IHex);
@@ -2093,11 +2191,17 @@ mod tests {
 
     #[test]
     fn destructive_operations_check_id_before_erase_or_write() {
+        use minipro_core::transport::LinkSpeed;
+        for link in [LinkSpeed::High, LinkSpeed::Super] {
+            assert_destructive_operation_order(link);
+        }
+    }
+
+    fn assert_destructive_operation_order(link: minipro_core::transport::LinkSpeed) {
         use minipro_core::caps::MemoryOps;
         use minipro_core::device::{flags, BlockReq, ChipId, Device};
         use minipro_core::error::FwVersion;
         use minipro_core::programmer::{Caps, ProgrammerInfo, Session};
-        use minipro_core::transport::LinkSpeed;
 
         struct Fake {
             info: ProgrammerInfo,
@@ -2193,7 +2297,7 @@ mod tests {
                 serial: String::new(),
                 mfg_date: String::new(),
                 device_code: String::new(),
-                link: LinkSpeed::High,
+                link,
                 voltage: 5.0,
                 bootloader: false,
             },
@@ -2264,6 +2368,38 @@ mod tests {
         let first_erase = right.actions.iter().position(|a| *a == "erase").unwrap();
         let first_write = right.actions.iter().position(|a| *a == "write").unwrap();
         assert!(first_id < first_erase && first_erase < first_write);
+        let first_read = right.actions.iter().position(|a| *a == "read").unwrap();
+        assert!(
+            first_write < first_read,
+            "writes must be verified by readback"
+        );
+
+        // The fake drops writes and returns erased bytes: a non-FF image must
+        // fail readback on both link speeds, rather than report success.
+        let mut dropped = make_fake(0x1234);
+        let mut nonblank = std::io::Cursor::new(vec![0xaa; 8]);
+        assert_eq!(
+            write_to_programmer(
+                &mut dropped,
+                &dev,
+                &mut nonblank,
+                false,
+                false,
+                false,
+                false,
+                &mut Silent,
+            )
+            .unwrap_err()
+            .code(),
+            "verify_failed"
+        );
+
+        let mut erased = make_fake(0x1234);
+        erase_with_programmer(&mut erased, &dev, &mut Silent).unwrap();
+        assert_eq!(
+            erased.actions,
+            ["begin", "identify", "end", "begin", "erase", "end"]
+        );
 
         // A malformed source must refuse even with a matching chip, before
         // protect/erase/write. Dry-run has no mutation commands either.

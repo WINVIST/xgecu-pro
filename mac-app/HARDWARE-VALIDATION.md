@@ -12,14 +12,20 @@ completed record in a private location.
    speed. Optionally save the listing with
    `system_profiler SPUSBDataType > usb-direct.txt`.
 2. In XGecu Pro, click **Connect / Refresh**. Record the displayed model,
-   firmware, USB link, and any error text. A SuperSpeed diagnostic means chip
-   operations must wait for a working link.
+   firmware, USB link, and any error text. Build 9 permits chip operations at
+   SuperSpeed; programmer firmware updates on macOS T76 still require High Speed.
 3. If direct SuperSpeed does not work, connect the supplied cable through a
    USB 2.0 hub, if its connectors fit. Repeat the speed and Connect / Refresh
    checks. Record which connection succeeds. Do not infer direct-cable support
    from a successful hub test.
 
 ## 2. Read the two photographed Macronix parts
+
+For USB3 validation, first record a verified full dump of the unchanged chip
+through the working Digma route. Reconnect through Wavlink without Digma, read
+the same chip twice and compare the saved dump's SHA-256 with the Digma dump.
+Repeat Connect / Refresh after physical reconnects. A successful system-info
+report alone does not establish chip-transfer or programming reliability.
 
 Only proceed on a working T76 connection. Use the correct 300 mil SOP16 adapter
 and the manufacturer's verified pin-1 and placement instructions. The package
@@ -80,8 +86,8 @@ For the photographed `MX25L51245GMI-08G`, the user reported **Detect ID**
 `c9a54490897ea9dfc24eaf136dd7663a87b56c890e98715ee05c531dc5807ef9`,
 and external `cmp -s` exited with status `0`. The app reported “Chip contents
 match the file” after Verify Against File. This validates a stable full code
-region read of the current MX25 contents. MX25 programming and erase have not
-been tested on this Mac.
+region read of the current MX25 contents. At that stage MX25 programming and
+erase had not been tested; the later build 9 programming result is below.
 
 The MX25 screenshot's Hex panel still shows the 134,217,728-byte MX66 buffer
 and its `2efabaa8…` SHA-256. Selecting or detecting another chip does not
@@ -89,6 +95,41 @@ replace the buffer. The app now labels the source file and source chip and
 warns when the selected chip differs. Use **Read…** or **Open File…** to inspect
 the MX25 dump in Hex; the shell size, hash, and comparison output above are
 the evidence for the two MX25 files.
+
+### Build 8: full MX25 comparison over Wavlink SuperSpeed
+
+On 2026-10-15, the user reported that build 8 connected through
+Mac → Wavlink WL-UG69PD25 Pro → T76 without the Digma hub. The supplied app
+screenshot shows T76 firmware `00.1.18` and `USB ss`. After the requested
+cross-route comparison with the dump saved through Digma, **Verify Against
+File…** reported “Chip contents match the file.” The user explicitly confirmed
+`MX25L51245G`, 64 MiB, and the Wavlink-only route. This command requires two
+stable full reads and a match against the selected file, establishing a
+successful 67,108,864-byte code-region comparison over SuperSpeed on the
+MacBook Pro 16-inch M3 Pro / macOS 26.7.1 (25G241). No new file hash or raw
+diagnostic report was supplied for this pass; do not assign the earlier dump
+hash to it without measurement.
+
+Build 9 removes the temporary SuperSpeed chip write/erase block in the GUI and
+CLI, preserving database eligibility, ID checks before mutation, confirmations
+and mandatory programming readback. Firmware updates to the T76 itself remain
+blocked at macOS SuperSpeed.
+
+### Build 9: programming with readback through UGREEN
+
+After installing build 9, the user supplied the application result
+“Programming completed and verified by a readback. The Hex buffer was not
+changed; use Read to view the chip.” Asked about the same MX25L51245G / 64 MiB
+setup, they clarified that this pass used UGREEN instead of Wavlink. This is a
+reported programming pass through UGREEN CM512 / P/N 45000 with full code-region
+readback equality. Do not label it as Wavlink programming: Wavlink has the
+separate full-read comparison above. No new UGREEN speed screenshot, raw log,
+image hash or diagnostic JSON was supplied; the earlier Wavlink USB ss image
+is not direct speed evidence for the UGREEN run. The programming path normally
+erases this NOR part before writing, but a separate Erase / Blank Check pass
+was not reported. Direct USB3 and repeated cold-connect acceptance also remain
+pending. The application deliberately preserves the Hex editor buffer after
+programming; an explicit Read refreshes it from the chip.
 
 For each pair, check sizes and hashes in Terminal, replacing the filenames:
 
@@ -126,5 +167,6 @@ controls where an electronic ID and erase capability are present. Do not use
 them on the requested Macronix parts until their placement, repeated full
 reads, and original backup have been checked. Test mutation first on a
 disposable rewritable part. The observed MX66L1G45G programming and both
-chips' repeated read passes do not establish an original MX66 backup or
-validate MX25 write/erase.
+chips' repeated read passes do not establish an original MX66 backup. The later
+MX25 Program and Verify result is recorded separately above; standalone erase
+and blank check still require their own results.

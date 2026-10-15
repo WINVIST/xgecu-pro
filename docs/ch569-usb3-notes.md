@@ -1,147 +1,232 @@
-# Why the T76's SuperSpeed link fails on macOS — the CH569W USB3 implementation
+# T76 SuperSpeed on macOS: evidence and experiments
 
-*Researched 2026-08-12, prompted by the bulk-transfer failure documented in
-[minipro-setup.md](minipro-setup.md). Live descriptor reads below were taken
-from this unit (serial 2023000105) over the working control endpoint.*
+Updated 2026-10-15. Earlier notes described U1/U2 link power management as a
+confirmed cause. That exceeded the evidence: the exact cause remains unproven.
+A controller error, BOS descriptors and WCH reference code do not establish
+which handshake the actual T76 firmware misses.
 
-**Thesis, now well-supported:** the T76's MCU (WCH CH569W) implements USB 3.0
-link power management **in firmware, not silicon**, advertises worst-case
-U1/U2 exit latencies copied from WCH's example code, and Apple Silicon's xHCI
-is unusually strict about link-layer responsiveness. macOS arms U1/U2, the
-firmware misses a wake handshake, and every bulk transfer dies with
-`kIOReturnNotResponding`. On USB 2.0 (High Speed) none of that machinery is
-used, which is why a USB 2.0 hub is the fix.
+## Observations
 
-## 1. The CH569 services U1/U2 in a firmware interrupt handler
+The 2026-08-12 C/libusb investigation recorded working EP0 descriptors and
+interface claims, followed by `kIOReturnNotResponding` (`0xe00002ed`) on the
+first bulk OUT to endpoint 0x01 at SuperSpeed. The command endpoints advertised
+1024-byte packets, no streams. High Speed worked. See [the original record](minipro-setup.md).
 
-WCH's reference USB3 device stack for the CH56x (mirrored by the HydraUSB3
-project, whose BSP is the open copy of WCH's code) handles **every link-state
-transition in software** — `LINK_IRQHandler` in
-[`CH56x_usb30_devbulk.c`](https://github.com/hydrausb3/wch-ch56x-bsp/blob/main/usb/usb_devbulk/CH56x_usb30_devbulk.c):
+Stable 1.1.1 / diagnostic build 5 rejected macOS + T76 + SuperSpeed in
+`check_link()` **before sending system-info**. That was a compatibility guard,
+not a fresh transfer failure. Ordinary opens also cycled configuration 0→1;
+diagnostics skipped it. Build 6 removes the cycle and allows normal connection,
+chip identification, reads and comparisons at SuperSpeed. Programming, erase
+and programmer firmware updates remain blocked on macOS T76 SuperSpeed pending
+full chip-transfer validation in builds 6–8. Build 9 lifts the chip-operation
+block after the full read comparison below; programmer firmware updates stay
+guarded. USB2 and other platforms/models retain their policy.
 
-- `LINK_GO_U1_FLAG` / `LINK_GO_U2_FLAG` → firmware manually switches the PHY
-  power mode (`USB30_switch_powermode(POWER_MODE_1/2)`).
-- `LINK_Ux_EXIT_FLAG` (host wants the link back in U0) → firmware must
-  reprogram `LINK_CFG` (EQ, de-emphasis, RX terminations) and switch back to
-  `POWER_MODE_0` — inside an IRQ on the 120 MHz RISC-V core.
-- Hot reset, warm reset, LFPS polling, and even the initial LMP port-capability
-  exchange are all serviced the same way.
+User reports on 2026-10-15: MacBook Pro 16-inch M3 Pro; report confirms macOS
+26.7.1 (25G241), T76 firmware 00.1.18. These are connection observations, not chip read/write
+validation:
 
-So the U1/U2 **exit path is software-timed**. If the CPU is busy (the T76
-firmware is also driving an FPGA, SPI flash, relays and an ADC) or the
-WCH stack mishandles an edge in the LFPS wake handshake, the device simply
-does not respond within the exit-latency budget — which at the xHCI level is
-reported as *device not responding*, exactly the `kIOReturnNotResponding
-(0xe00002ed)` we captured. Parts of WCH's USB3 stack ship only as a binary
-blob (`libusb30`), so the community can't audit or fix the remainder.
-
-## 2. The T76 advertises worst-case LPM latencies (live read from this unit)
-
-BOS descriptor read over EP0 on 2026-08-12 (`scratchpad bos_read.py`, raw:
-`050f160002071002060000000a1003000e00010aff07`):
-
-| Capability | Value | Meaning |
+| Connection | Reported result | Link evidence |
 |---|---|---|
-| USB 2.0 Extension `bmAttributes` | `0x06` | claims **LPM + BESL** support on High Speed |
-| SuperSpeed cap `bmAttributes` | `0x00` | no LTM |
-| `wSpeedsSupported` | `0x000E` | FS/HS/SS (5 Gbps) |
-| **`bU1DevExitLat`** | **10 µs (`0x0A`)** | the **maximum legal value** |
-| **`wU2DevExitLat`** | **2047 µs (`0x7FF`)** | the **maximum legal value** |
+| Mac → Digma DHUB-LAN-4port → T76 | works | app displays `hs` |
+| Mac → Wavlink WL-UG69PD25 Pro → Digma → T76 | works | measure separately |
+| Mac → UGREEN CM512 / P/N 45000 → T76 | compatibility error | guarded CLI does not attempt bulk transfer |
+| Mac → Wavlink WL-UG69PD25 Pro → T76 | build 5 baseline passes all 4 probes | OS reports Super; EP01/81 MPS 1024; firmware 00.1.18 |
 
-Both exit latencies are the spec ceilings, verbatim from WCH's example
-descriptors (HydraUSB3 ships the identical `0x0A / 0x07FF`). Translation: the
-firmware tells the host "I support U1/U2, and I may take the worst permissible
-time to wake." The host then dutifully enables U1/U2 with those budgets. A
-device that then *still* overruns them (see §1) is out of spec, and a strict
-host gives up on the transfer.
+The baseline report at 2026-10-15T11:47:52Z measured 98 ms for every system-info
+exchange after 0/100/1000/3000 ms idle. GET_STATUS was 1: U1/U2 device-initiated
+flags were already clear. This does not establish host-initiated LPM policy.
+The second report (11:49:01Z), device U1/U2 profile, failed claiming interface 0
+(`interface not found`); no control feature or bulk command was issued. It is
+not evidence that changing U1/U2 failed, nor does it prove why the interface
+was absent. No chip read, programming or repeated cold-connect result is supplied yet.
 
-## 3. Apple Silicon hosts are the strict ones
+Build 6 baseline at 2026-10-15T13:00:52Z and ordinary Connect both failed with
+`claim interface 0: interface not found`; RUN reportedly blinked rapidly. The
+device still enumerated as Super. No chip or bulk probe ran. This reproduces the
+interface-publication failure independently of the optional U1/U2 experiment.
 
-- macOS decides LPM per device: `ioreg` on this Mac shows
-  `kUSBHostDeviceEnableLPM = No` stamped on two hubs (Apple's internal errata
-  list), while the **T76 gets no such exemption** — U1/U2 stay armed. The
-  errata table lives inside SIP-protected `IOUSBHostFamily`; there is **no
-  user-space way** to add a device to it.
-- The same failure signature is documented for completely different silicon:
-  ST's [STLINK-V3 / STM32 USB fails with `kIOReturnNotResponding` on Apple
-  Silicon](https://community.st.com/t5/stm32-mcus-embedded-software/usb-comms-failure-with-apple-silicon-arm-mac/td-p/618571)
-  (works on Intel and M1, fails on M3 — Apple's PHY/controller tolerance
-  tightened across generations). ST's workarounds: PHY tuning, **forcing a
-  lower speed, or a hub** — the same medicine that applies here.
-- Device-mode U1/U2 fragility is industry-wide, not a WCH-only sin: Qualcomm
-  merged kernel patches [disabling U1/U2 entry on their device controllers](https://lkml.rescloud.iu.edu/2412.2/03868.html)
-  because it "can cause packet drops and missed transfers."
-- Linux hosts are lenient *and configurable* (`usbcore.quirks=a466:1a86:k`,
-  per-device `power/usb3_hardware_lpm` in sysfs); Windows is similarly
-  forgiving. That is why Xgpro-on-Windows and minipro-on-Linux work while
-  macOS does not. macOS exposes no equivalent knob.
+### Build 7: conditional initial configuration
 
-## 4. Corroborating CH569 community experience
+[Apple's USB guide](https://developer.apple.com/library/archive/documentation/DeviceDrivers/Conceptual/USBBook/USBDeviceInterfaces/USBDevInterfaces.html)
+explains that vendor-specific devices can remain unconfigured until the app
+selects a declared configuration, which creates the interface objects. nusb's
+macOS claim path only searches existing interface objects. Its cached active
+configuration is not definitive: failed configuration queries can become cached
+zero. These facts make missing initial configuration a candidate; the user's
+build 6 report did not measure it and cannot establish that cause.
 
-- HydraUSB3 (the main open CH569 USB3 effort) sees marginal SuperSpeed link
-  training: [hydrausb3_fw #23](https://github.com/hydrausb3/hydrausb3_fw/issues/23)
-  — official firmware enumerates USB2-only on some host/cable combinations,
-  i.e. the SS link layer is sensitive on this chip even before LPM enters the
-  picture.
-- radiomanV's [`t76_uploader.py`](https://github.com/radiomanV/Xgecu_T76)
-  drives the **same bulk EP 0x01** and lists macOS as supported — evidently
-  tested on a host where the link stayed in U0 (Intel Mac, hub, or Linux).
-  Consistent with our one unreproducible success: if you catch the link while
-  it is awake, bulk works; the first U1/U2 dip kills it.
+Build 7 first tries the ordinary claim. Only on macOS T76, after a NotFound
+claim, it reads standard GET_CONFIGURATION from the device (80/08/0000/0000,
+length 1). If the response is exactly one byte zero, it selects the unique
+declared nonzero configuration containing interface 0, alternate 0 and bulk
+01/81. Selection uses nusb's OS API so macOS can publish its interfaces.
+The value is read back and claim gets a fresh bounded retry window. There is
+one selection attempt, no bus reset, no unconfigure request, and no bulk replay.
+Busy, permission, unknown state, nonzero state and ambiguous descriptors never
+trigger selection. Other platforms/models retain their claim behavior.
 
-## 5. Conclusions for this repo
+Diagnostics now collect BOS and configuration/endpoint descriptors before claim.
+The `opening` report records enumerated interface numbers, cached state, actual
+device state, selection/readback, typed claim-error categories and OS codes.
+If configured state is nonzero but no interface appears, the report exposes
+that mismatch instead of trying a reset or same-configuration reselect.
+Hardware verification of this conditional recovery remains pending.
 
-1. **Nothing is wrong with our build or libusb usage.** The failure is a
-   firmware (WCH stack) ↔ host-controller (Apple xHCI LPM policy) interaction
-   below all user software.
-2. **The USB 2.0 hub workaround is principled, not folklore**: at High Speed
-   the SS link layer (U1/U2, LFPS, LMP) does not exist. The USB2 path claims
-   L1/BESL support too, but that machinery is mature in the CH569's USB2 core.
-3. A real macOS-side fix would require Apple adding the T76 (`0xA466:0x1A86`)
-   to its LPM errata list, or XGecu either honoring Ux exits in time or
-   advertising honest latencies / no LPM support. An XGecu firmware fix is
-   plausible — the descriptors and link handling are all in the updatable
-   CH569 firmware — but the image is encrypted
-   ([firmware-updater.md](firmware-updater.md)), so no community patch is
-   possible today.
-4. If a future test matters: a **USB 3.0 hub** in the path may *also* mask the
-   issue (hubs terminate the upstream link and often re-time LPM), but the
-   USB 2.0 hub is the deterministic option.
+### Build 8: rejected GET_CONFIGURATION
 
-## 6. A Linux VM on this Mac (OrbStack etc.) does *not* bypass it
+The build 7 report at 2026-10-15T17:29:24Z confirms BOS reads work, a single
+configuration value 1 describes interface 0/alternate 0 and fourteen bulk
+endpoints (1024-byte packets), but no host interfaces exist. The cached state
+says unconfigured. Actual GET_CONFIGURATION returns protocol STALL. Consequently
+build 7 never attempted selection; `selected_configuration` is null. This still
+does not establish the device's actual configuration or a bulk-transfer fault.
 
-Running the fork under a macOS-hosted Linux VM is tempting — Linux has the
-exact quirk knobs (`usbcore.quirks=a466:1a86:k`,
-`echo disabled > .../power/usb3_hardware_lpm`) that would fix this on real
-hardware. On this Mac they can't reach the failing layer, for an architectural
-reason that holds across *every* hypervisor here:
+[Released libusb 1.0.30's Darwin claim path](https://github.com/libusb/libusb/blob/v1.0.30/libusb/os/darwin_usb.c#L1855)
+sets the first configuration when no interface exists, without requiring a
+successful GET_CONFIGURATION. Build 8 implements a narrower compatibility path:
+only macOS T76, NotFound claim, no enumerated interfaces, no cached active
+configuration, exactly one declared configuration with the command endpoint
+pair, and specifically a typed control STALL. Select once through the OS API.
+Timeout, short response, disconnect, permission, other active interfaces,
+measured nonzero state and ambiguous descriptors do not permit this fallback.
 
-- **No physical-USB / controller passthrough exists on Apple Silicon.** Apple's
-  Virtualization.framework has **no API to capture a physical USB device** —
-  confirmed by Apple DTS; the macOS-15 `VZXHCIController` / `VZUSBDevice` APIs
-  only attach *emulated* mass-storage and HID, not arbitrary hardware
-  ([Apple forums](https://developer.apple.com/forums/thread/757096),
-  [VZUSBDevice](https://developer.apple.com/documentation/virtualization/vzusbdevice)).
-  And there is no VFIO/PCI passthrough of the built-in xHCI to a guest. So a
-  guest can never drive the physical controller natively.
-- **Therefore OrbStack's arbitrary-device passthrough is userspace forwarding.**
-  macOS claims the T76 through its own IOKit/`IOUSBHost` (or libusb) stack and
-  tunnels the transfers into the Linux guest (USB/IP-style over the VM channel).
-  OrbStack does expose the device now — [`orb usb attach`](https://docs.orbstack.dev/features/usb)
-  — but every bulk transfer the guest issues is still executed by the **host
-  macOS xHCI driver**, i.e. the layer that already returns
-  `kIOReturnNotResponding`.
-- **The Linux quirks apply to the wrong controller.** Inside the guest,
-  `usbcore` sees a *virtual* device/controller; `usb3_hardware_lpm` and the
-  quirk table act on that, not on Apple's physical link. The U1/U2 negotiation
-  that breaks the T76 was already done by macOS at plug-in, before the VM ever
-  attached the device.
+A repeat GET_CONFIGURATION STALL after selection is recorded, while an actual
+interface claim, command endpoints and system-info responses validate whether
+communication works. Different readback values or other readback failures stop
+the attempt. No additional set/reset is attempted. Reports include the selection
+reason, readback error and `interface_claimed`. Prior state remains unknown:
+selection might actually reselect configuration 1 and reset endpoint state. This
+is a connection-time compatibility attempt, not a guaranteed zero-to-one change
+or proof that the hardware issue is fixed. Chip programming stays guarded.
 
-Net: OrbStack (and Docker Desktop, UTM's host-USB mode, Parallels, etc. — all
-built on Virtualization.framework or the same libusb forwarding) inherit the
-host controller's failure. The physical USB 2.0 downgrade is still the fix, and
-once applied, native macOS `minipro` works — so the VM is not needed for the
-USB problem (only as a clean-room Linux env if wanted). Cheap way to confirm on
-the T76: `orb usb attach 0xa466:0x1a86`, then in the guest watch `dmesg` for a
-`-71` / "device not responding" reset on the first bulk op — the same wall,
-one layer up.
+No raw CLEAR_FEATURE(HALT) is sent to EP0. A protocol control STALL is cleared
+by the next request as described in
+[nusb's transfer contract](https://github.com/kevinmehall/nusb/blob/v0.2.7/src/transfer/mod.rs#L27-L33).
+
+### Hardware follow-up and build 9
+
+The user reported successful build 8 connection without Digma; their screenshot
+shows firmware `00.1.18`, `USB ss`. The subsequent **Verify Against File…**
+reported “Chip contents match the file.” They explicitly confirmed
+`MX25L51245G`, 64 MiB, through Mac → Wavlink → T76, following the requested
+comparison against the Digma-route dump. The command requires two stable full
+reads plus file equality. This validates that specific full chip read route;
+it is not a write/erase, UGREEN, direct-USB3 or cold-reconnect result.
+
+Build 9 removes the temporary macOS T76 SuperSpeed guard for chip programming
+and erase. The same database/ID checks run before destructive commands at both
+speeds, and programming still requires full readback equality. Programmer
+firmware updates retain a separate macOS T76 SuperSpeed guard.
+
+The next user report supplied the successful Program and Verify completion
+message. The user clarified that this pass used the same MX25 setup through
+UGREEN instead of Wavlink. Record UGREEN programming with full readback separately
+from Wavlink's full read comparison. No new UGREEN link-speed screenshot/raw
+diagnostic or image hash was supplied. Standalone erase/blank check, direct USB3,
+Wavlink programming and repeated cold reconnects remain separate acceptance work.
+
+### Release 1.1.2: general-purpose diagnostics
+
+The app no longer offers model-specific hub names. Connection metadata uses
+`unknown`, `direct`, `hub`, `dock` or `adapter`, with optional free-text notes
+explicitly labeled user-provided. The GUI export has `schema_version: 2` and a
+`connection` object; the CLI report remains compatible and carries the actual
+OS speed independently. No topology is inferred from a chosen label.
+
+The standard test stays read-only for chip contents. The GUI summarizes detection,
+interface opening and four information exchanges, with firmware, measured speed
+and failure-specific next steps. A missing or inconsistent report cannot show
+success, even if its `passed` field is true. Technical JSON is in a disclosure,
+with local copy/save actions; reports include no programmer serial/chip contents.
+The optional U1/U2 experiment is under Advanced test. Helper-launch/JSON failures
+also produce an exportable failed report. A completed report's metadata remains
+fixed until New Test, so changing settings cannot relabel existing evidence.
+
+The normal transport maps an unavailable speed to High. The diagnostic records
+the OS-reported speed independently, leaving it null when unavailable.
+
+## Hypothesis: link power management
+
+The historical BOS capture was
+`050f160002071002060000000a1003000e00010aff07`: USB2 LPM/BESL, SuperSpeed
+FS/HS/SS support, no LTM, U1 exit latency 10 µs and U2 exit latency 2047 µs.
+These are advertised capabilities, not a trace of the link's runtime state.
+
+[WCH's reference CH56x stack](https://github.com/hydrausb3/wch-ch56x-bsp/blob/main/usb/usb_devbulk/CH56x_usb30_devbulk.c)
+handles link events in firmware. That makes a firmware/host LPM interaction
+plausible; it does not prove the closed T76 firmware behaves identically.
+
+Apple lists `kUSBHostDevicePropertyEnableLPM` and
+`kUSBHostDevicePropertyDisablePortLPM` in its
+[registry property names](https://developer.apple.com/documentation/usbdriverkit/registry-property-names).
+No supported ordinary-app runtime setter was established in this investigation.
+No supported public API was found to force this device to USB 2.0. Do not change
+SIP, registry policy or shared hub ports as an automatic workaround.
+
+## Implemented diagnostic experiments
+
+Open **USB Diagnostics…** in the app sidebar or Programmer menu. Remove the
+chip, connect exactly one T76 and unplug/replug before **each** test. Label the
+connection, run the standard test first and save its JSON report. Reconnect,
+then run the optional USB sleep experiment (advanced) if needed. The successful
+Wavlink baseline requires no power-management workaround.
+
+Equivalent bundled-helper commands:
+
+```sh
+"/Applications/XGecuPro.app/Contents/Resources/minipro" --json usb-diagnose
+# Unplug/replug the T76 before the independent second test:
+"/Applications/XGecuPro.app/Contents/Resources/minipro" --json usb-diagnose --disable-device-u1-u2
+```
+
+Diagnostics and ordinary opens now both preserve the host configuration.
+The diagnostics read BOS/status and request system-info
+four times, with idle intervals 0, 100, 1000 and 3000 ms. Ordinary bulk calls
+retain 5-second deadlines. The first failed command stops the experiment;
+there is no reset or retry. No chip commands, socket voltages, bitstreams or
+firmware writes are involved. Reports omit serial numbers and chip contents.
+
+The optional experiment reads the initial device status, clears only initially
+enabled U1/U2 features, verifies the flags, runs system-info and attempts to
+restore both initial flags even after partial setup or bulk failure. Reconnect
+afterward, especially if restoration reports an error.
+
+| EP0 operation | bmRequestType | bRequest | wValue | wIndex | wLength |
+|---|---|---|---|---|---|
+| GET_STATUS(device) | 0x80 | 0 | 0 | 0 | 2 |
+| CLEAR_FEATURE(U1_ENABLE) | 0x00 | 1 | 48 | 0 | 0 |
+| CLEAR_FEATURE(U2_ENABLE) | 0x00 | 1 | 49 | 0 | 0 |
+| SET_FEATURE restore | 0x00 | 3 | 48 or 49 | 0 | 0 |
+
+GET_STATUS is little-endian; U1 mask is 0x0004 and U2 mask is 0x0008.
+[Linux Chapter 9 definitions](https://github.com/torvalds/linux/blob/master/include/uapi/linux/usb/ch9.h)
+document the constants. Clearing these flags disables **device-initiated** entry;
+host-initiated transitions can remain. It is not equivalent to disabling host LPM.
+See [Microsoft's U1/U2 transition description](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/u1-and-u2-transitions).
+
+JSON `ok` means a report was produced, including when no device opened. Inspect
+`report.passed`, `report.error`, individual `probes` and `restore_error` for
+the actual result. Passing system-info does not validate chip transfers or
+establish successful chip programming. Build 9 exposes chip operations after
+the user's separate full-read comparison above.
+
+## Next decisions after real hardware results
+
+- Wavlink full MX25 comparison and UGREEN programming/readback have been reported.
+  Separately check Wavlink programming, standalone erase/blank check, repeated
+  cold connects and direct USB3. Preserve the original backups.
+- Only U1/U2 experiment passes: evaluate a scoped transport policy and test
+  long reads, idle periods and reconnects before enabling it for chip operations.
+- Neither passes: compare a native
+  [IOUSBHost](https://developer.apple.com/documentation/iousbhost/) backend with
+  nusb's current IOUSBLib backend. That A/B test has not been performed.
+- Keep High Speed as a working fallback while diagnosing; a USB2-only cable
+  can remove the extra Digma hub from the current chain.
+
+Already tried without a repeatable SuperSpeed fix: SET_INTERFACE, configuration
+reset/cycle, device reset, clear halt, reopen, control keepalives and first-touch
+tests. Repeating these is not a new remedy. macOS CI can prove compilation,
+packaging and mocked behavior, but has no T76 and cannot establish compatibility
+with these docks. USB forwarding into a VM also does not prove the guest controls
+the physical link's LPM policy; that requires evidence about the particular backend.

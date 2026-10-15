@@ -32,6 +32,7 @@ jobs:
             mac-app/XGecuPro/Sources/AppModel.swift \
             mac-app/XGecuPro/Sources/MiniProRunner.swift \
             mac-app/Shared/HexBuffer.swift mac-app/Shared/ChipPolicy.swift mac-app/Shared/ChipCatalog.swift \
+            mac-app/Shared/USBDiagnosticSummary.swift \
             mac-app/scripts/capture-ui-previews.swift \
             -o "$RUNNER_TEMP/capture-ui-previews"
           "$RUNNER_TEMP/capture-ui-previews" "$RUNNER_TEMP/ui-previews"
@@ -82,6 +83,14 @@ jobs:
           codesign --force --sign - --timestamp=none "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           "$app/Contents/Resources/minipro" --version
+
+      - name: Check USB diagnostic report without hardware
+        run: |
+          helper="$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app/Contents/Resources/minipro"
+          "$helper" --json usb-diagnose > "$RUNNER_TEMP/usb-diagnostic.json"
+          jq -e '.ok == true and .op == "usb-diagnose" and .report.passed == false and .report.error != null and .report.probes == [] and .report.opening.claim_attempts == [] and .report.opening.selected_configuration == null and .report.opening.configuration_selection_reason == null and .report.opening.interface_claimed == false' "$RUNNER_TEMP/usb-diagnostic.json"
+          "$helper" --json usb-diagnose --disable-device-u1-u2 > "$RUNNER_TEMP/usb-diagnostic-experiment.json"
+          jq -e '.report.profile == "device-u1-u2-disabled" and .report.passed == false' "$RUNNER_TEMP/usb-diagnostic-experiment.json"
 
       - name: Check requested chips in pinned database
         run: |
