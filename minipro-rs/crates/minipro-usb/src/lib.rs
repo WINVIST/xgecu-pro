@@ -153,7 +153,8 @@ impl UsbTransport {
         Err(no_device_error(last))
     }
 
-    /// On macOS + SuperSpeed the T76 bulk path fails; surface a clear diagnostic.
+    /// Guard chip operations on the historically failing macOS SuperSpeed path.
+    /// This is a policy check, not a live bulk-transfer result.
     pub fn check_link(&self) -> Result<()> {
         superspeed_diagnostic(cfg!(target_os = "macos"), self.vid, self.pid, self.link)
     }
@@ -634,7 +635,9 @@ fn link_speed_from(speed: Option<Speed>) -> LinkSpeed {
 fn superspeed_diagnostic(is_macos: bool, vid: u16, pid: u16, link: LinkSpeed) -> Result<()> {
     if is_macos && vid == T76_VID && pid == T76_PID && link == LinkSpeed::Super {
         return Err(Error::Usb(
-            "T76 on macOS SuperSpeed: bulk transfers fail; use a USB 2.0 cable".into(),
+            "T76 on macOS SuperSpeed: chip operations are blocked pending validation; \
+             run USB Diagnostics or use a USB 2.0 cable"
+                .into(),
         ));
     }
     Ok(())
@@ -898,6 +901,8 @@ mod tests {
         assert_eq!(err.code(), "usb");
         assert!(err.to_string().contains("SuperSpeed"));
         assert!(err.to_string().contains("USB 2.0"));
+        assert!(err.to_string().contains("USB Diagnostics"));
+        assert!(!err.to_string().contains("bulk transfers fail"));
         // The typed error carries the hard-won remediation hint.
         assert_eq!(
             err.hint(),
