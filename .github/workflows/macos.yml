@@ -132,6 +132,13 @@ jobs:
           cmp "$input" "$output"
           cat "$RUNNER_TEMP/stream-memory.txt"
           awk '/maximum resident set size/ { found=1; if ($1 > 134217728) exit 1 } END { if (!found) exit 1 }' "$RUNNER_TEMP/stream-memory.txt"
+          swiftc -parse-as-library -O mac-app/Shared/HexBuffer.swift \
+            mac-app/scripts/check-large-buffer.swift -o "$RUNNER_TEMP/check-large-buffer"
+          expected_hash=$(shasum -a 256 "$input" | awk '{print $1}')
+          /usr/bin/time -l "$RUNNER_TEMP/check-large-buffer" "$input" "$expected_hash" \
+            > "$RUNNER_TEMP/large-buffer.txt" 2> "$RUNNER_TEMP/large-buffer-memory.txt"
+          cat "$RUNNER_TEMP/large-buffer.txt" "$RUNNER_TEMP/large-buffer-memory.txt"
+          awk '/maximum resident set size/ { found=1; if ($1 > 134217728) exit 1 } END { if (!found) exit 1 }' "$RUNNER_TEMP/large-buffer-memory.txt"
 
       - name: Package unsigned macOS app
         run: |

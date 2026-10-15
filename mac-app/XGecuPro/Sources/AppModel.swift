@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -52,9 +51,8 @@ final class AppModel: ObservableObject {
     @Published var blockDestinationText = "0"
 
     private let runner = MiniProRunner()
-    private let maxBufferBytes = 256 * 1024 * 1024
     private let pageBytes = 256
-    private var buffer = HexBuffer()
+    private let buffer = HexBuffer()
     private var cleanSHA256 = ""
     private var lastSearch: Data?
     private var lastFoundOffset: Int?
@@ -243,30 +241,13 @@ final class AppModel: ObservableObject {
         panel.nameFieldStringValue = selectedChip.replacingOccurrences(of: "@", with: "_") + ".bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let chip = selectedChip
-        let largeRaw = (chipDetails?.codeBytes ?? 0) > ChipPolicy.maxImageBytes
-        if largeRaw && ["hex", "ihex", "s19", "s28", "s37", "srec"].contains(url.pathExtension.lowercased()) {
-            status = "Error: Chips larger than 256 MiB require a raw dump (.bin)."
-            return
-        }
         perform(["read", selectedChip, url.path]) { [weak self] result in
             guard let self else { return }
             let stable = result["stable"] as? Bool ?? false
             let message = stable
                 ? "Dump saved and confirmed by a second read."
                 : "The dump was saved, but the second read differed. Check the chip contact and read it again."
-            if largeRaw {
-                self.buffer.load(Data())
-                self.bufferSize = 0
-                self.bufferOffset = 0
-                self.updateBufferState()
-                self.cleanSHA256 = self.bufferSHA256
-                self.bufferDirty = false
-                self.lastFile = nil
-                self.bufferChip = nil
-                self.status = message + " The raw dump is too large for the in-app hex buffer."
-            } else {
-                self.openImage(url, successStatus: message, originChip: chip)
-            }
+            self.openImage(url, successStatus: message, originChip: chip)
         }
     }
 
@@ -283,14 +264,14 @@ final class AppModel: ObservableObject {
     func verifyChip() {
         guard readyForChipOperation else { return }
         guard canVerifySelected else {
-            status = "Error: Verification of chips larger than 256 MiB is not yet supported."
+            status = "Error: Select a chip with a code region of 1 byte to 2 GiB."
             return
         }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        perform(["verify", selectedChip, url.path]) { [weak self] result in
+        perform(["verify", selectedChip, url.path, "--format", inputFormat(for: url)]) { [weak self] result in
             guard let self else { return }
             if result["stable"] as? Bool != true {
                 self.status = "Repeated reads differ; verification is unreliable. Check the chip contact."
@@ -323,19 +304,27 @@ final class AppModel: ObservableObject {
 
         let chip = selectedChip
         let selectedDatabase = databasePath
-        let snapshot: (directory: URL, file: URL)
-        do {
-            snapshot = try makePrivateImageSnapshot(of: url)
-        } catch {
-            status = "Error: Could not prepare the programming image (\(englishErrorDetails(error)))."
-            return
+        beginLocalOperation("Preparing private firmware snapshot")
+        Task {
+            do {
+                let snapshot = try await Task.detached(priority: .userInitiated) {
+                    try self.makePrivateImageSnapshot(of: url)
+                }.value
+                busy = false
+                preflightProgramming(snapshot, original: url, chip: chip, selectedDatabase: selectedDatabase)
+            } catch { failLocalOperation(error) }
         }
+    }
+
+    private func preflightProgramming(_ snapshot: (directory: URL, file: URL), original url: URL,
+                                      chip: String, selectedDatabase: String) {
         let attributes = try? FileManager.default.attributesOfItem(atPath: snapshot.file.path)
         if let size = attributes?[.size] as? NSNumber {
             appendLog("Programming image selected: \(url.lastPathComponent), \(size.intValue.formatted()) bytes.")
         }
         var committed = false
-        perform(["write", chip, snapshot.file.path, "--dry-run"],
+        let format = inputFormat(for: url)
+        perform(["write", chip, snapshot.file.path, "--format", format, "--dry-run"],
                 databasePath: selectedDatabase,
                 cleanup: {
                     if !committed { try? FileManager.default.removeItem(at: snapshot.directory) }
@@ -351,7 +340,7 @@ final class AppModel: ObservableObject {
             alert.buttons[1].keyEquivalent = ""
             guard alert.runModal() == .alertSecondButtonReturn else { return }
             committed = true
-            self.perform(["write", chip, snapshot.file.path], databasePath: selectedDatabase,
+            self.perform(["write", chip, snapshot.file.path, "--format", format], databasePath: selectedDatabase,
                          cleanup: { try? FileManager.default.removeItem(at: snapshot.directory) }) { [weak self] _ in
                 self?.status = "Programming completed and verified by a readback. The Hex buffer was not changed; use Read to view the chip."
             }
@@ -419,26 +408,19 @@ final class AppModel: ObservableObject {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = lastFile?.lastPathComponent ?? "buffer.bin"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let directory = try makePrivateTemporaryDirectory()
-            let raw = directory.appendingPathComponent("buffer.bin")
-            guard FileManager.default.createFile(atPath: raw.path, contents: buffer.bytes,
-                                                 attributes: [.posixPermissions: 0o600]) else {
-                try? FileManager.default.removeItem(at: directory)
-                status = "Error: Could not prepare the buffer for saving."
-                return
-            }
-            perform(["convert", raw.path, url.path], cleanup: {
-                try? FileManager.default.removeItem(at: directory)
-            }) { [weak self] _ in
-                guard let self else { return }
-                self.lastFile = url
-                self.cleanSHA256 = self.bufferSHA256
-                self.bufferDirty = false
-                self.status = "Buffer saved: \(url.lastPathComponent)."
-            }
-        } catch {
-            status = "Error: Could not save the buffer (\(englishErrorDetails(error)))."
+        beginLocalOperation("Preparing buffer for saving")
+        Task {
+            do {
+                let raw = try await buffer.sourceURL()
+                busy = false
+                perform(["convert", raw.path, url.path, "--input-format", "raw"]) { [weak self] _ in
+                    guard let self else { return }
+                    self.lastFile = url
+                    self.cleanSHA256 = self.bufferSHA256
+                    self.bufferDirty = false
+                    self.status = "Buffer saved: \(url.lastPathComponent)."
+                }
+            } catch { failLocalOperation(error) }
         }
     }
 
@@ -451,15 +433,19 @@ final class AppModel: ObservableObject {
         do {
             let directory = try makePrivateTemporaryDirectory()
             let raw = directory.appendingPathComponent("comparison.bin")
-            perform(["convert", url.path, raw.path], cleanup: {
-                try? FileManager.default.removeItem(at: directory)
+            var comparing = false
+            perform(["convert", url.path, raw.path, "--input-format", inputFormat(for: url)], cleanup: {
+                if !comparing { try? FileManager.default.removeItem(at: directory) }
             }) { [weak self] _ in
                 guard let self else { return }
-                do {
-                    let other = try self.readBoundedFile(raw)
-                    self.compareBuffer(other, named: url.lastPathComponent)
-                } catch {
-                    self.status = "Error: Could not compare the files (\(self.englishErrorDetails(error)))."
+                comparing = true
+                self.bufferTask("Comparing buffer with file", refresh: false, cleanup: {
+                    try? FileManager.default.removeItem(at: directory)
+                }) {
+                    let result = try await self.buffer.firstMismatch(with: raw)
+                    guard let offset = result.offset else { return "The buffer matches \(url.lastPathComponent) byte for byte." }
+                    return String(format: "Difference from %@ at address 0x%X (sizes: %d and %d bytes).",
+                                  url.lastPathComponent, offset, self.bufferSize, result.otherBytes)
                 }
             }
         } catch {
@@ -467,20 +453,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func compareBuffer(_ other: Data, named name: String) {
-        let common = min(buffer.bytes.count, other.count)
-        if buffer.bytes == other {
-            status = "The buffer matches \(name) byte for byte."
-        } else {
-            let mismatch = zip(buffer.bytes.prefix(common), other.prefix(common))
-                .enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset ?? common
-            status = String(format: "Difference from %@ at address 0x%X (sizes: %d and %d bytes).",
-                            name, mismatch, buffer.bytes.count, other.count)
-        }
-    }
-
     func previousPage() {
-        guard bufferOffset > 0 else { return }
+        guard !busy, bufferOffset > 0 else { return }
         bufferOffset = max(0, bufferOffset - pageBytes)
         lastSearch = nil
         lastFoundOffset = nil
@@ -489,7 +463,7 @@ final class AppModel: ObservableObject {
     }
 
     func nextPage() {
-        guard bufferOffset + pageBytes < bufferSize else { return }
+        guard !busy, bufferOffset + pageBytes < bufferSize else { return }
         bufferOffset += pageBytes
         lastSearch = nil
         lastFoundOffset = nil
@@ -498,7 +472,7 @@ final class AppModel: ObservableObject {
     }
 
     func jumpToAddress() {
-        guard bufferSize > 0 else { return }
+        guard !busy, bufferSize > 0 else { return }
         guard let address = parseHexNumber(addressText), address >= 0, address < bufferSize else {
             status = "Error: Address is outside the buffer. Enter a hexadecimal offset."
             return
@@ -547,17 +521,15 @@ final class AppModel: ObservableObject {
         let start = lastSearch == needle && lastFoundOffset != nil
             ? min(bufferSize, (lastFoundOffset ?? 0) + 1)
             : first
-        let match = buffer.find(needle, from: start)
-        guard let match else {
-            status = "Byte sequence not found."
-            return
+        bufferTask("Searching buffer", refresh: false) {
+            guard let match = try await self.buffer.find(needle, from: start) else { return "Byte sequence not found." }
+            self.bufferOffset = (match / self.pageBytes) * self.pageBytes
+            self.lastSearch = needle
+            self.lastFoundOffset = match
+            self.addressText = String(match, radix: 16).uppercased()
+            try await self.renderCurrentPage()
+            return String(format: "Found at address 0x%X.", match)
         }
-        bufferOffset = (match / pageBytes) * pageBytes
-        lastSearch = needle
-        lastFoundOffset = match
-        addressText = String(match, radix: 16).uppercased()
-        renderPage()
-        status = String(format: "Found at address 0x%X.", match)
     }
 
     func copyBlock() {
@@ -568,15 +540,11 @@ final class AppModel: ObservableObject {
             status = "Error: Enter valid HEX block and destination addresses."
             return
         }
-        do {
-            try buffer.copyBlock(start: start, end: end, to: destination)
-        } catch {
-            status = "Error: Block or destination is outside the buffer."
-            return
+        bufferTask("Copying buffer block") {
+            try await self.buffer.copyBlock(start: start, end: end, to: destination)
+            self.focusEdit(at: destination)
+            return String(format: "Copied 0x%X…0x%X to 0x%X. Save the buffer before programming.", start, end, destination)
         }
-        focusEdit(at: destination)
-        updateBufferState()
-        status = String(format: "Copied 0x%X…0x%X to 0x%X. Save the buffer before programming.", start, end, destination)
     }
 
     func exportBlock() {
@@ -586,21 +554,16 @@ final class AppModel: ObservableObject {
             status = "Error: Enter a valid HEX block range."
             return
         }
-        let block: Data
-        do {
-            block = try buffer.block(start: start, end: end)
-        } catch {
+        guard start >= 0, start <= end, end < bufferSize else {
             status = "Error: Block range is outside the buffer."
             return
         }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = String(format: "block_%X_%X.bin", start, end)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try block.write(to: url, options: .atomic)
-            status = "Exported \(block.count) bytes to \(url.lastPathComponent)."
-        } catch {
-            status = "Error: Could not export the block (\(englishErrorDetails(error)))."
+        bufferTask("Exporting buffer block", refresh: false) {
+            try await self.buffer.export(start: start, end: end, to: url)
+            return "Exported \(end - start + 1) bytes to \(url.lastPathComponent)."
         }
     }
 
@@ -619,15 +582,11 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Fill")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        do {
-            try buffer.fill(start: start, end: end, value: UInt8(value))
-        } catch {
-            status = "Error: Could not fill the selected range."
-            return
+        bufferTask("Filling buffer range") {
+            try await self.buffer.fill(start: start, end: end, value: UInt8(value))
+            self.focusEdit(at: start)
+            return "Buffer modified. Save it before programming."
         }
-        focusEdit(at: start)
-        updateBufferState()
-        status = "Buffer modified. Save it before programming."
     }
 
     func editByte() {
@@ -638,29 +597,25 @@ final class AppModel: ObservableObject {
             status = "Error: Enter a valid HEX address and byte value."
             return
         }
-        do {
-            try buffer.setByte(at: address, to: UInt8(value))
-        } catch {
-            status = "Error: Could not edit the selected byte."
-            return
+        bufferTask("Updating buffer byte") {
+            try await self.buffer.setByte(at: address, to: UInt8(value))
+            self.focusEdit(at: address)
+            return String(format: "Set byte at 0x%X to 0x%02X. Save the buffer before programming.", address, value)
         }
-        focusEdit(at: address)
-        updateBufferState()
-        status = String(format: "Set byte at 0x%X to 0x%02X. Save the buffer before programming.", address, value)
     }
 
     func undoEdit() {
-        guard !busy, let range = buffer.undo() else { return }
-        focusEdit(at: range.lowerBound)
-        updateBufferState()
-        status = "Last buffer edit undone."
+        bufferTask("Undoing buffer edit") {
+            if let range = try await self.buffer.undo() { self.focusEdit(at: range.lowerBound) }
+            return "Last buffer edit undone."
+        }
     }
 
     func redoEdit() {
-        guard !busy, let range = buffer.redo() else { return }
-        focusEdit(at: range.lowerBound)
-        updateBufferState()
-        status = "Buffer edit restored."
+        bufferTask("Restoring buffer edit") {
+            if let range = try await self.buffer.redo() { self.focusEdit(at: range.lowerBound) }
+            return "Buffer edit restored."
+        }
     }
 
     private func focusEdit(at address: Int) {
@@ -700,7 +655,7 @@ final class AppModel: ObservableObject {
     private var readyForMutation: Bool {
         guard readyForChipOperation else { return false }
         if !canWriteSelected {
-            status = "Error: Programming requires a database electronic ID and a code region no larger than 256 MiB."
+            status = "Error: Programming requires a database electronic ID and a code region no larger than 2 GiB."
             return false
         }
         return true
@@ -800,7 +755,7 @@ final class AppModel: ObservableObject {
         return String(describing: warning)
     }
 
-    private func makePrivateTemporaryDirectory() throws -> URL {
+    nonisolated private func makePrivateTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("xgecu-pro-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
@@ -808,7 +763,7 @@ final class AppModel: ObservableObject {
         return directory
     }
 
-    private func makePrivateImageSnapshot(of source: URL) throws -> (directory: URL, file: URL) {
+    nonisolated private func makePrivateImageSnapshot(of source: URL) throws -> (directory: URL, file: URL) {
         let directory = try makePrivateTemporaryDirectory()
         do {
             let suffix = source.pathExtension.isEmpty ? "bin" : source.pathExtension
@@ -823,8 +778,8 @@ final class AppModel: ObservableObject {
             defer { try? output.close() }
             var copied = 0
             while let chunk = try input.read(upToCount: 64 * 1024), !chunk.isEmpty {
-                guard chunk.count <= (256 * 1024 * 1024) - copied else {
-                    throw MiniProFailure(message: "The image exceeds the 256 MiB input limit.", hint: nil)
+                guard chunk.count <= (8 * 1024 * 1024 * 1024) - copied else {
+                    throw MiniProFailure(message: "The image exceeds the 8 GiB text input limit.", hint: nil)
                 }
                 try output.write(contentsOf: chunk)
                 copied += chunk.count
@@ -842,16 +797,25 @@ final class AppModel: ObservableObject {
         do {
             let directory = try makePrivateTemporaryDirectory()
             let raw = directory.appendingPathComponent("image.bin")
-            perform(["convert", url.path, raw.path], cleanup: {
-                try? FileManager.default.removeItem(at: directory)
+            var loading = false
+            perform(["convert", url.path, raw.path, "--input-format", inputFormat(for: url)], cleanup: {
+                if !loading { try? FileManager.default.removeItem(at: directory) }
             }) { [weak self] _ in
-                guard let self, self.loadBuffer(raw) else { return }
-                self.lastFile = url
-                self.bufferChip = originChip
-                if let successStatus {
-                    self.status = successStatus
-                } else {
-                    self.status = "Image loaded: \(url.lastPathComponent), \(self.bufferSize) bytes."
+                guard let self else { return }
+                loading = true
+                self.bufferTask("Loading image and computing checksum", newDocument: true, cleanup: {
+                    try? FileManager.default.removeItem(at: directory)
+                }) {
+                    try await self.buffer.load(raw)
+                    self.bufferSize = await self.buffer.count
+                    self.bufferOffset = 0
+                    self.addressText = "0"
+                    self.byteAddressText = "0"
+                    self.lastSearch = nil
+                    self.lastFoundOffset = nil
+                    self.lastFile = url
+                    self.bufferChip = originChip
+                    return successStatus ?? "Image loaded: \(url.lastPathComponent), \(self.bufferSize) bytes."
                 }
             }
         } catch {
@@ -859,49 +823,43 @@ final class AppModel: ObservableObject {
         }
     }
 
-    @discardableResult
-    private func loadBuffer(_ url: URL) -> Bool {
-        do {
-            let bytes = try readBoundedFile(url)
-            buffer.load(bytes)
-            bufferSize = bytes.count
-            bufferOffset = 0
-            addressText = "0"
-            byteAddressText = "0"
-            lastSearch = nil
-            lastFoundOffset = nil
-            lastFile = url
-            updateBufferState()
-            cleanSHA256 = bufferSHA256
-            bufferDirty = false
-            status = "Dump loaded: \(url.lastPathComponent), \(bytes.count) bytes."
-            return true
-        } catch {
-            status = "Error: Could not read the dump (\(englishErrorDetails(error)))."
-            return false
-        }
+    private func inputFormat(for url: URL) -> String {
+        ["bin", "rom", "raw"].contains(url.pathExtension.lowercased()) ? "raw" : "auto"
     }
 
-    private func readBoundedFile(_ url: URL) throws -> Data {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var bytes = Data()
-        while bytes.count <= maxBufferBytes {
-            let chunk = try handle.read(upToCount: min(1024 * 1024, maxBufferBytes + 1 - bytes.count)) ?? Data()
-            if chunk.isEmpty { break }
-            bytes.append(chunk)
-        }
-        guard !bytes.isEmpty, bytes.count <= maxBufferBytes else {
-            throw BufferError.invalidSize
-        }
-        return bytes
+    private func beginLocalOperation(_ stage: String) {
+        busy = true
+        progress = nil
+        currentStage = stage
+        status = stage + "…"
+        appendLog("Started \(stage).")
     }
 
-    private enum BufferError: LocalizedError {
-        case invalidSize
+    private func failLocalOperation(_ error: Error) {
+        busy = false
+        currentStage = nil
+        progress = nil
+        status = "Error: \(englishErrorDetails(error))"
+        appendLog(status)
+    }
 
-        var errorDescription: String? {
-            "The dump must be between 1 byte and 256 MiB."
+    private func bufferTask(_ stage: String, refresh: Bool = true, newDocument: Bool = false,
+                            cleanup: (() -> Void)? = nil,
+                            operation: @escaping @MainActor () async throws -> String) {
+        guard !busy else { cleanup?(); return }
+        beginLocalOperation(stage)
+        Task {
+            defer { cleanup?() }
+            do {
+                let message = try await operation()
+                if refresh { try await updateBufferState() }
+                if newDocument { cleanSHA256 = bufferSHA256; bufferDirty = false }
+                status = message
+                appendLog(message)
+                busy = false
+                currentStage = nil
+                progress = nil
+            } catch { failLocalOperation(error) }
         }
     }
 
@@ -909,33 +867,39 @@ final class AppModel: ObservableObject {
         if let failure = error as? MiniProFailure {
             return failure.errorDescription ?? "minipro failed"
         }
-        if let failure = error as? BufferError {
+        if let failure = error as? HexBufferError {
             return failure.errorDescription ?? "Invalid buffer"
         }
         let value = error as NSError
         return "\(value.domain), code \(value.code)"
     }
 
-    private func updateChecksum() {
-        bufferSHA256 = SHA256.hash(data: buffer.bytes).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func updateBufferState() {
-        updateChecksum()
+    private func updateBufferState() async throws {
+        bufferSHA256 = try await buffer.sha256()
+        bufferSize = await buffer.count
         bufferDirty = bufferSHA256 != cleanSHA256
-        canUndo = buffer.canUndo
-        canRedo = buffer.canRedo
-        renderPage()
+        canUndo = await buffer.canUndo
+        canRedo = await buffer.canRedo
+        try await renderCurrentPage()
     }
 
     private func renderPage() {
-        let end = min(bufferOffset + pageBytes, bufferSize)
-        hexPreview = stride(from: bufferOffset, to: end, by: 16).map { offset in
-            let line = buffer.bytes[offset..<min(offset + 16, end)]
+        Task {
+            do { try await renderCurrentPage() }
+            catch { status = "Error: \(englishErrorDetails(error))" }
+        }
+    }
+
+    private func renderCurrentPage() async throws {
+        let address = bufferOffset
+        let page = try await buffer.page(at: address, count: pageBytes)
+        guard address == bufferOffset else { return }
+        hexPreview = stride(from: 0, to: page.count, by: 16).map { offset in
+            let line = page[offset..<min(offset + 16, page.count)]
             let hex = line.map { String(format: "%02X", $0) }.joined(separator: " ")
             let ascii = line.map { (32...126).contains(Int($0)) ? String(UnicodeScalar($0)) : "." }.joined()
             let paddedHex = hex.padding(toLength: 47, withPad: " ", startingAt: 0)
-            return String(format: "%08X", offset) + "  " + paddedHex + "  " + ascii
+            return String(format: "%08X", address + offset) + "  " + paddedHex + "  " + ascii
         }.joined(separator: "\n")
     }
 }

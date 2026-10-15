@@ -31,10 +31,10 @@ final class ChipPolicyTests: XCTestCase {
         XCTAssertTrue(ChipPolicy.canWrite(name, details: chip, isT76: true))
         XCTAssertTrue(ChipPolicy.canErase(name, details: chip, isT76: true))
 
-        let tooLarge = try XCTUnwrap(ChipDetails(details(name, bytes: ChipPolicy.maxImageBytes + 1)))
-        XCTAssertTrue(ChipPolicy.canRead(name, details: tooLarge, isT76: true))
-        XCTAssertFalse(ChipPolicy.canVerify(name, details: tooLarge, isT76: true))
-        XCTAssertFalse(ChipPolicy.canWrite(name, details: tooLarge, isT76: true))
+        let large = try XCTUnwrap(ChipDetails(details(name, bytes: 1_140_850_688)))
+        XCTAssertTrue(ChipPolicy.canRead(name, details: large, isT76: true))
+        XCTAssertTrue(ChipPolicy.canVerify(name, details: large, isT76: true))
+        XCTAssertTrue(ChipPolicy.canWrite(name, details: large, isT76: true))
         let beyondStream = try XCTUnwrap(ChipDetails(details(name, bytes: ChipPolicy.maxStreamedReadBytes + 1)))
         XCTAssertFalse(ChipPolicy.canRead(name, details: beyondStream, isT76: true))
 
