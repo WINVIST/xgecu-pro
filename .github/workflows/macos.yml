@@ -169,6 +169,7 @@ jobs:
           "$RUNNER_TEMP/dmg-venv/bin/python" mac-app/scripts/build-dmg.py \
             "$RUNNER_TEMP/xgecu-pro-derived/Build/Products/Release/XGecuPro.app" \
             "$RUNNER_TEMP/XGecuPro-macOS-arm64.dmg"
+          cp mac-app/design/dmg/XGecuPro-First-Launch.txt "$RUNNER_TEMP/XGecuPro-First-Launch.txt"
 
       - name: Upload installable app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -179,6 +180,7 @@ jobs:
             ${{ runner.temp }}/XGecuPro-macOS-arm64.zip.sha256
             ${{ runner.temp }}/XGecuPro-macOS-arm64.dmg
             ${{ runner.temp }}/XGecuPro-macOS-arm64.dmg.sha256
+            ${{ runner.temp }}/XGecuPro-First-Launch.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -217,4 +219,5 @@ jobs:
             release-assets/XGecuPro-macOS-arm64.zip \
             release-assets/XGecuPro-macOS-arm64.zip.sha256 \
             release-assets/XGecuPro-macOS-arm64.dmg \
-            release-assets/XGecuPro-macOS-arm64.dmg.sha256
+            release-assets/XGecuPro-macOS-arm64.dmg.sha256 \
+            release-assets/XGecuPro-First-Launch.txt

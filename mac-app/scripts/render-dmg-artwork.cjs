@@ -16,6 +16,6 @@ async function main() {
       .png()
       .toFile(path.join(design, `background${scale === 2 ? '@2x' : ''}.png`));
   }
-  console.log('Exported 720x460 and 1440x920 DMG backgrounds.');
+  console.log(`Exported ${width}x${height} and ${width * 2}x${height * 2} DMG backgrounds.`);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

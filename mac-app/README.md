@@ -20,6 +20,9 @@ Download the latest GitHub Release app DMG and matching
 and start at step 3 below. A successful CI artifact is also available for
 testing changes before a release. If a release only offers the ZIP, use the
 ZIP alternative below.
+The release also includes `XGecuPro-First-Launch.txt` with copyable signature
+and quarantine commands shown in the installation window. Use them only after
+the download checksum succeeds and the installed app's signature verifies.
 
 1. Sign in to GitHub and open the latest successful `macOS arm64` run for `main`
    on the [Actions page](https://github.com/WINVIST/xgecu-pro/actions/workflows/macos.yml).

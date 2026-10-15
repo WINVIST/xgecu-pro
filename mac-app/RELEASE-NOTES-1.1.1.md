@@ -5,6 +5,8 @@ XGecu Pro 1.1.1 adds a native drag-to-Applications installation experience.
 - The DMG opens a clear two-item layout: drag XGecuPro onto Applications,
   then launch the installed copy. The background includes Retina artwork.
 - Releases include both DMG and ZIP downloads with individual SHA-256 files.
+- The installation screen shows first-launch signature/quarantine commands
+  for this ad hoc build; a separate text download makes them easy to copy.
 - macOS CI verifies the disk image, saved Finder layout, Applications link,
   app signatures and a copied-out app with its bundled CLI before publishing.
 

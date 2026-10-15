@@ -2,12 +2,16 @@
 
 ## Design contract
 
-This is a fixed 720 x 460 point Finder content area. Its job is to explain
+This is a fixed 720 x 540 point Finder layout. Its job is to explain
 one action: copy `XGecuPro.app` to Applications. The app icon on the left and
 the real `/Applications` symlink on the right remain native Finder items,
 including their labels and keyboard selection. The arrow, heading and short
-instructions are artwork, not controls. The footer explains where to launch
-the installed copy.
+instructions are artwork, not controls. The lower area shows the app signature
+check, app-only quarantine removal and launch commands for a blocked first
+launch. The commands are chained with `&&`, so a failed signature check stops
+the following commands. The screen requires verifying the download checksum
+first. `XGecuPro-First-Launch.txt` is a separate release download for copying
+the commands and includes Apple's normal Open Anyway route.
 
 The existing blue X / graphite chip icon is the product reference. A light
 neutral background gives the two icons space and keeps the instructions
@@ -16,7 +20,7 @@ wizard is part of this window. All app-facing text remains English.
 
 `layout.json` defines icon coordinates, window dimensions and text sizes for
 packaging. `background.svg` is the editable artwork; the checked-in PNGs are
-720 x 460 at 72 dpi and 1440 x 920 at 144 dpi. The images intentionally contain
+720 x 540 at 72 dpi and 1440 x 1080 at 144 dpi. The images intentionally contain
 neither app nor folder icons: both must remain draggable in Finder.
 
 `preview.html` is a static design preview, not an installer. Its folder drawing
@@ -55,7 +59,7 @@ a finally block. The script refuses existing outputs and personal offline
 apps with a bundled proprietary database.
 
 CI runs this packaging check after the existing app build, and uploads the
-DMG, ZIP and both checksum files. Tagged releases publish both formats. The
+DMG, ZIP, both checksum files and first-launch instructions. Tagged releases publish these assets. The
 DMG does not change the app's signing or notarization status.
 
 To regenerate the artwork, make `sharp` available to Node and run:
