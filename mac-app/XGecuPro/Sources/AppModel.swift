@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
     @Published var deviceStatus = "Programmer not checked"
     @Published var status = "Connect the T76 with the supplied USB cable, then click Connect / Refresh."
     @Published var busy = false
+    @Published var keepProgrammerConnected = false
     @Published var progress: Double?
     @Published var currentStage: String?
     @Published var log: [String] = []
@@ -695,6 +696,7 @@ final class AppModel: ObservableObject {
         var stageStartedAt = startedAt
         var lastMilestone = -1
         busy = true
+        keepProgrammerConnected = ["info", "read", "write", "erase", "blank", "verify", "detect", "check", "autodetect"].contains(operation)
         progress = nil
         currentStage = "Starting \(operation)…"
         status = "Running: \(operation)…"
@@ -733,6 +735,7 @@ final class AppModel: ObservableObject {
                 self.appendLog("Finished \(stage) after \(String(format: "%.1f", Date().timeIntervalSince(stageStartedAt))) s.")
             }
             self.busy = false
+            self.keepProgrammerConnected = false
             self.progress = nil
             self.currentStage = nil
             switch result {
@@ -856,6 +859,7 @@ final class AppModel: ObservableObject {
 
     private func beginLocalOperation(_ stage: String) {
         busy = true
+        keepProgrammerConnected = false
         progress = nil
         currentStage = stage
         status = stage + "…"
@@ -864,6 +868,7 @@ final class AppModel: ObservableObject {
 
     private func failLocalOperation(_ error: Error) {
         busy = false
+        keepProgrammerConnected = false
         currentStage = nil
         progress = nil
         status = "Error: \(englishErrorDetails(error))"

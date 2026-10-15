@@ -27,6 +27,7 @@ struct CaptureUIPreviews {
             ("09-catalog-filter-dark", true, 0, NSSize(width: 1020, height: 680)),
             ("10-setup-check", false, 0, NSSize(width: 1020, height: 680)),
             ("11-large-hex-buffer", true, 1, NSSize(width: 1180, height: 820)),
+            ("12-local-buffer-work", false, 1, NSSize(width: 1180, height: 820)),
         ]
         for (name, dark, tab, size) in states {
             let model = fixture(name)
@@ -100,6 +101,7 @@ struct CaptureUIPreviews {
             model.status = "Running: search…"
         } else if name == "03-programming" {
             model.busy = true
+            model.keepProgrammerConnected = true
             model.currentStage = "Readback verification"
             model.progress = 0.64
             model.status = "Running: write…"
@@ -108,7 +110,7 @@ struct CaptureUIPreviews {
         } else if name == "10-setup-check" {
             model.setupStatus = "Chip ID matches the selected entry. Contact self-test is unavailable on this programmer. Check the chip and adapter seating."
             model.status = model.setupStatus ?? "Setup checked."
-        } else if name == "06-hex-editor" || name == "11-large-hex-buffer" {
+        } else if name == "06-hex-editor" || name == "11-large-hex-buffer" || name == "12-local-buffer-work" {
             model.bufferSize = name == "11-large-hex-buffer" ? 1_140_850_688 : 256
             model.bufferOffset = name == "11-large-hex-buffer" ? model.bufferSize - 256 : 0
             model.addressText = String(model.bufferOffset, radix: 16).uppercased()
@@ -126,6 +128,11 @@ struct CaptureUIPreviews {
             }
             model.hexPreview = lines.joined(separator: "\n")
             model.status = "Buffer modified. Save it before programming."
+            if name == "12-local-buffer-work" {
+                model.busy = true
+                model.currentStage = "Computing buffer checksum"
+                model.status = "Computing buffer checksum…"
+            }
         }
         return model
     }

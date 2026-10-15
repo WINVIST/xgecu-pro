@@ -361,7 +361,9 @@ private struct OperationStatus: View {
                 } else {
                     ProgressView().progressViewStyle(.linear)
                 }
-                Text("Keep the programmer connected until the operation finishes.").font(.caption).foregroundStyle(.secondary)
+                if model.keepProgrammerConnected {
+                    Text("Keep the programmer connected until the operation finishes.").font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .accessibilityElement(children: .contain)
