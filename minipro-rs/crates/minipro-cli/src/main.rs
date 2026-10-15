@@ -12,12 +12,12 @@
 mod reporters;
 mod tui;
 
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
-use minipro_core::device::{EraseKind, Image, Region};
+use minipro_core::device::{EraseKind, Region};
 use minipro_core::error::{Error, Result};
 use minipro_core::format::Format;
 use minipro_core::ops;
@@ -99,17 +99,6 @@ impl Fmt {
             Fmt::Raw => Format::Raw,
             Fmt::Ihex => Format::IHex,
             Fmt::Srec => Format::SRec,
-        }
-    }
-    /// The concrete [`Format`] for parsing `file` (input side): `Auto` uses the
-    /// extension, falling back to content sniffing for a mislabeled file.
-    fn for_input(self, file: &Path, bytes: &[u8]) -> Format {
-        match self {
-            Fmt::Auto => match Format::from_path(file) {
-                Format::Raw => Format::detect(bytes),
-                known => known,
-            },
-            other => other.for_output(file),
         }
     }
 }
@@ -771,13 +760,7 @@ fn run_read(
     rep.event(&Event::Stage("Loading chip database".into()));
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
-    let large_raw = dev.code_size > minipro_core::format::MAX_IMAGE_BYTES as u64;
-    if large_raw && format.for_output(file) != Format::Raw {
-        return Err(Error::Format(
-            "chips larger than 256 MiB can only be read to a raw output file".into(),
-        ));
-    }
-    if dev.code_size > ops::MAX_STREAMED_REGION_BYTES {
+    if dev.code_size == 0 || dev.code_size > ops::MAX_STREAMED_REGION_BYTES {
         return Err(Error::Format(
             "chip capacity exceeds the streamed read limit".into(),
         ));
@@ -787,82 +770,40 @@ fn run_read(
     warn_firmware(&*prog, &*db, rep);
     let link = prog.info().link;
 
-    if large_raw {
-        let parent = file
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        let verified = {
-            rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
-            let mut txn = Txn::begin(&mut *prog, &dev)?;
-            let (p, s) = txn.parts();
-            pincheck(p, s, skip_pincheck, rep)?;
-            check_chip_id(p, s, &dev, force, rep)?;
-            ops::read_verified_to_file(p, s, Region::code(&dev), temporary.as_file_mut(), rep)?
-        };
-        temporary.as_file().sync_all()?;
-        temporary.persist(file).map_err(|error| error.error)?;
-        rep.finish(&verified.outcome(&dev.name, link));
-        return Ok(());
-    }
-
+    let parent = file
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     let verified = {
         rep.event(&Event::Stage("Checking socket contacts and chip ID".into()));
         let mut txn = Txn::begin(&mut *prog, &dev)?; // ends (de-energizes) on drop
         let (p, s) = txn.parts();
         pincheck(p, s, skip_pincheck, rep)?;
         check_chip_id(p, s, &dev, force, rep)?;
-        ops::read_verified(p, s, Region::code(&dev), rep)?
+        ops::read_verified_to_file(p, s, Region::code(&dev), temporary.as_file_mut(), rep)?
     };
 
-    let out = format.for_output(file).emit(&verified.image);
-    write_output_atomically(file, &out)?;
+    if format.for_output(file) != Format::Raw {
+        rep.event(&Event::Stage(
+            "Converting dump to the selected format".into(),
+        ));
+        let mut encoded = tempfile::NamedTempFile::new_in(parent)?;
+        {
+            let mut writer = BufWriter::new(encoded.as_file_mut());
+            format.for_output(file).encode_from(
+                temporary.as_file_mut(),
+                &mut writer,
+                verified.bytes,
+            )?;
+            writer.flush()?;
+        }
+        temporary = encoded;
+    }
+    temporary.as_file().sync_all()?;
+    temporary.persist(file).map_err(|error| error.error)?;
     rep.finish(&verified.outcome(&dev.name, link));
     Ok(())
-}
-
-/// Parse `file` in the selected format and fit it to the chip: pad short images
-/// to `code_size` with the chip's erased byte (`blank`, so read-back verify of
-/// the tail matches the real erased state), and reject one larger than the chip.
-fn load_image(file: &Path, format: Fmt, code_size: u64, blank: u8) -> Result<Image> {
-    use std::io::Read as _;
-    let need = usize::try_from(code_size)
-        .map_err(|_| Error::Format("chip capacity is too large for this host".into()))?;
-    if need > minipro_core::format::MAX_IMAGE_BYTES {
-        return Err(Error::Format(
-            "chip capacity exceeds the supported image limit".into(),
-        ));
-    }
-    const MAX_INPUT_BYTES: u64 = 256 << 20;
-    let input = std::fs::File::open(file)?;
-    if input.metadata()?.len() > MAX_INPUT_BYTES {
-        return Err(Error::Format(
-            "image file exceeds the 256 MiB input limit".into(),
-        ));
-    }
-    let mut raw = Vec::new();
-    input.take(MAX_INPUT_BYTES + 1).read_to_end(&mut raw)?;
-    if raw.len() as u64 > MAX_INPUT_BYTES {
-        return Err(Error::Format(
-            "image file exceeds the 256 MiB input limit".into(),
-        ));
-    }
-    let mut image = format
-        .for_input(file, &raw)
-        .parse_with_limit(&raw, blank, need)?;
-    match image.bytes.len().cmp(&need) {
-        std::cmp::Ordering::Greater => Err(Error::Format(format!(
-            "image is {} bytes but the chip holds {} — too large",
-            image.bytes.len(),
-            need
-        ))),
-        std::cmp::Ordering::Less => {
-            image.bytes.resize(need, blank); // pad the tail with the erased byte
-            Ok(image)
-        }
-        std::cmp::Ordering::Equal => Ok(image),
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -881,7 +822,7 @@ fn run_write(
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Write { dry_run })?;
     rep.event(&Event::Stage("Preparing programming image".into()));
-    let image = load_image(file, format, dev.code_size, dev.blank_value)?;
+    let mut image = prepare_chip_image(file, format, dev.code_size, dev.blank_value)?;
     rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
@@ -889,7 +830,7 @@ fn run_write(
     write_to_programmer(
         &mut *prog,
         &dev,
-        &image,
+        image.spool.as_file_mut(),
         dry_run,
         no_erase,
         skip_pincheck,
@@ -916,10 +857,10 @@ fn validate_chip_before_mutation(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn write_to_programmer(
+fn write_to_programmer<R: Read + Seek>(
     prog: &mut dyn Programmer,
     dev: &minipro_core::device::Device,
-    image: &Image,
+    image: &mut R,
     dry_run: bool,
     no_erase: bool,
     skip_pincheck: bool,
@@ -928,7 +869,15 @@ fn write_to_programmer(
 ) -> Result<()> {
     if !dry_run {
         rep.event(&Event::Stage("Checking chip ID".into()));
-        validate_chip_before_mutation(prog, dev, force, rep)?;
+        if std::env::var_os("MINIPRO_REQUIRE_CHIP_ID").is_some() && dev.chip_id_bytes == 0 {
+            return Err(Error::Unsupported(
+                "this application requires a chip with an electronic ID",
+            ));
+        }
+        let mut txn = Txn::begin(prog, dev)?;
+        let (p, s) = txn.parts();
+        check_chip_id(p, s, dev, force, rep)?;
+        ops::validate_streamed_write(p, s, Region::code(dev), image)?;
     }
 
     // Parts flagged OFF_PROTECT_BEFORE (most SPI NOR included) need
@@ -957,6 +906,7 @@ fn write_to_programmer(
         let (p, s) = txn.parts();
         pincheck(p, s, skip_pincheck, rep)?;
         check_chip_id(p, s, dev, force, rep)?;
+        ops::validate_streamed_write(p, s, Region::code(dev), image)?;
         // A dry run performs the same setup and ID check as a read, then stops
         // before any protect, erase, or write operation.
         if dry_run {
@@ -965,7 +915,7 @@ fn write_to_programmer(
             });
             return Ok(());
         }
-        ops::write_region(p, s, Region::code(dev), image, rep)?;
+        ops::write_region_from_reader(p, s, Region::code(dev), image, rep)?;
     }
 
     rep.finish(&Outcome::Ok { op: "write" });
@@ -1023,7 +973,8 @@ fn run_verify(
     let db = load_db(db_dir, rep)?;
     let dev = lookup_device(&*db, chip, ops::OpKind::Read)?;
     rep.event(&Event::Stage("Preparing comparison image".into()));
-    let expected = load_image(file, format, dev.code_size, dev.blank_value)?;
+    let mut expected = prepare_chip_image(file, format, dev.code_size, dev.blank_value)?;
+    let mut actual = tempfile::NamedTempFile::new()?;
     rep.event(&Event::Stage("Connecting to programmer".into()));
     let mut prog = open_programmer()?;
     warn_firmware(&*prog, &*db, rep);
@@ -1034,30 +985,32 @@ fn run_verify(
         let (p, s) = txn.parts();
         pincheck(p, s, skip_pincheck, rep)?;
         check_chip_id(p, s, &dev, force, rep)?;
-        ops::read_verified(p, s, Region::code(&dev), rep)?
+        ops::read_verified_to_file(p, s, Region::code(&dev), actual.as_file_mut(), rep)?
     };
     rep.event(&Event::Stage("Comparing chip data with file".into()));
-    rep.finish(&verify_outcome(&dev.name, &expected, &verified));
+    rep.finish(&streamed_verify_outcome(
+        &dev.name,
+        expected.spool.as_file_mut(),
+        actual.as_file_mut(),
+        &verified,
+    )?);
     Ok(())
 }
 
-fn verify_outcome(device: &str, expected: &Image, verified: &ops::VerifiedRead) -> Outcome {
-    let actual = &verified.image.bytes;
-    let first_mismatch = expected
-        .bytes
-        .iter()
-        .zip(actual)
-        .position(|(want, got)| want != got)
-        .or_else(|| {
-            (expected.bytes.len() != actual.len()).then_some(expected.bytes.len().min(actual.len()))
-        });
-    Outcome::Verify {
+fn streamed_verify_outcome<A: Read + Seek, B: Read + Seek>(
+    device: &str,
+    expected: &mut A,
+    actual: &mut B,
+    verified: &ops::StreamedRead,
+) -> Result<Outcome> {
+    let first_mismatch = ops::first_file_mismatch(expected, actual)?;
+    Ok(Outcome::Verify {
         device: device.to_owned(),
-        bytes: actual.len() as u64,
+        bytes: verified.bytes,
         matches: verified.stable && first_mismatch.is_none(),
         stable: verified.stable,
-        first_mismatch: first_mismatch.map(|n| n as u64),
-    }
+        first_mismatch,
+    })
 }
 
 fn erase_with_programmer(
@@ -1408,9 +1361,38 @@ fn run_describe(db_dir: Option<&Path>, chip: &str, mode: Mode) -> Result<()> {
 
 const CONVERT_INPUT_LIMIT: u64 = minipro_core::format::MAX_STREAMED_IMAGE_BYTES * 4;
 
+#[derive(Debug)]
 struct PreparedImage {
     spool: tempfile::NamedTempFile,
     bytes: u64,
+}
+
+fn prepare_chip_image(
+    input: &Path,
+    format: Fmt,
+    capacity: u64,
+    blank: u8,
+) -> Result<PreparedImage> {
+    if capacity == 0 || capacity > minipro_core::format::MAX_STREAMED_IMAGE_BYTES {
+        return Err(Error::Format(
+            "chip capacity exceeds the streamed image limit".into(),
+        ));
+    }
+    let mut image = prepare_image_file(input, format, capacity, blank)?;
+    if image.bytes == 0 {
+        return Err(Error::Format("programming image is empty".into()));
+    }
+    // Fill the tail on disk with the part's erased value before USB is opened.
+    image.spool.as_file_mut().seek(SeekFrom::End(0))?;
+    let block = [blank; 64 * 1024];
+    while image.bytes < capacity {
+        let len = (capacity - image.bytes).min(block.len() as u64) as usize;
+        image.spool.as_file_mut().write_all(&block[..len])?;
+        image.bytes += len as u64;
+    }
+    image.spool.as_file_mut().flush()?;
+    image.spool.as_file_mut().seek(SeekFrom::Start(0))?;
+    Ok(image)
 }
 
 /// Decode into a private seekable file before any programmer is opened.
@@ -1444,6 +1426,7 @@ fn prepare_image_file(
 /// Keep the prior dump intact if writing the replacement fails or the process
 /// stops before it is complete. A same-directory temporary file also prevents
 /// following a symlink at the selected output path.
+#[cfg(test)]
 fn write_output_atomically(output: &Path, bytes: &[u8]) -> Result<()> {
     let parent = output
         .parent()
@@ -1735,13 +1718,19 @@ mod tests {
         assert_eq!(Fmt::Auto.for_output(Path::new("d.bin")), Format::Raw);
         assert_eq!(Fmt::Raw.for_output(Path::new("d.hex")), Format::Raw);
         // Input side: Auto sniffs content when the extension is unknown.
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("d.dat");
+        std::fs::write(&input, b":01000000AA55\n:00000001FF\n").unwrap();
+        let mut image = prepare_image_file(&input, Fmt::Auto, 16, PAD).unwrap();
+        let mut bytes = Vec::new();
+        image.spool.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, [0xaa]);
+        std::fs::write(&input, [0, 1, 2]).unwrap();
         assert_eq!(
-            Fmt::Auto.for_input(Path::new("d.dat"), b":00000001FF"),
-            Format::IHex
-        );
-        assert_eq!(
-            Fmt::Auto.for_input(Path::new("d.dat"), &[0, 1, 2]),
-            Format::Raw
+            prepare_image_file(&input, Fmt::Auto, 16, PAD)
+                .unwrap()
+                .bytes,
+            3
         );
     }
 
@@ -1753,18 +1742,22 @@ mod tests {
 
         // Short image is padded to code_size with the given blank byte (0x00
         // here, proving the pad is the chip's erased value, not a hardcoded 0xFF).
-        let img = load_image(&path, Fmt::Raw, 8, 0x00).unwrap();
-        assert_eq!(img.bytes, vec![0xaa, 0xbb, 0xcc, 0xdd, 0, 0, 0, 0]);
+        let mut img = prepare_chip_image(&path, Fmt::Raw, 8, 0x00).unwrap();
+        let mut bytes = Vec::new();
+        img.spool.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, vec![0xaa, 0xbb, 0xcc, 0xdd, 0, 0, 0, 0]);
 
         // Exact fit is untouched.
         assert_eq!(
-            load_image(&path, Fmt::Raw, 4, PAD).unwrap().bytes,
-            vec![0xaa, 0xbb, 0xcc, 0xdd]
+            prepare_chip_image(&path, Fmt::Raw, 4, PAD).unwrap().bytes,
+            4
         );
 
         // Larger than the chip is rejected.
         assert_eq!(
-            load_image(&path, Fmt::Raw, 2, PAD).unwrap_err().code(),
+            prepare_chip_image(&path, Fmt::Raw, 2, PAD)
+                .unwrap_err()
+                .code(),
             "format"
         );
 
@@ -1835,20 +1828,16 @@ mod tests {
 
     #[test]
     fn verify_requires_both_reads_to_match_the_file() {
-        let expected = Image {
-            bytes: vec![0xaa, 0xbb],
-        };
-        let mut read = ops::VerifiedRead {
-            image: Image {
-                bytes: expected.bytes.clone(),
-            },
+        let mut expected = std::io::Cursor::new(vec![0xaa, 0xbb]);
+        let mut actual = expected.clone();
+        let mut read = ops::StreamedRead {
+            bytes: 2,
             stable: true,
-            reads: 2,
             crc32: 0,
             sha256: [0; 32],
         };
         assert!(matches!(
-            verify_outcome("CHIP", &expected, &read),
+            streamed_verify_outcome("CHIP", &mut expected, &mut actual, &read).unwrap(),
             Outcome::Verify {
                 matches: true,
                 first_mismatch: None,
@@ -1858,7 +1847,7 @@ mod tests {
 
         read.stable = false;
         assert!(matches!(
-            verify_outcome("CHIP", &expected, &read),
+            streamed_verify_outcome("CHIP", &mut expected, &mut actual, &read).unwrap(),
             Outcome::Verify {
                 matches: false,
                 stable: false,
@@ -1867,9 +1856,9 @@ mod tests {
         ));
 
         read.stable = true;
-        read.image.bytes[1] = 0;
+        actual.get_mut()[1] = 0;
         assert!(matches!(
-            verify_outcome("CHIP", &expected, &read),
+            streamed_verify_outcome("CHIP", &mut expected, &mut actual, &read).unwrap(),
             Outcome::Verify {
                 matches: false,
                 first_mismatch: Some(1),
@@ -2116,15 +2105,13 @@ mod tests {
             observed_id,
             actions: Vec::new(),
         };
-        let image = Image {
-            bytes: vec![0xff; 8],
-        };
+        let mut image = std::io::Cursor::new(vec![0xff; 8]);
         let mut wrong = make_fake(0x5678);
         assert_eq!(
             write_to_programmer(
                 &mut wrong,
                 &dev,
-                &image,
+                &mut image,
                 false,
                 false,
                 false,
@@ -2149,7 +2136,7 @@ mod tests {
         write_to_programmer(
             &mut right,
             &dev,
-            &image,
+            &mut image,
             false,
             false,
             false,
@@ -2161,6 +2148,40 @@ mod tests {
         let first_erase = right.actions.iter().position(|a| *a == "erase").unwrap();
         let first_write = right.actions.iter().position(|a| *a == "write").unwrap();
         assert!(first_id < first_erase && first_erase < first_write);
+
+        // A malformed source must refuse even with a matching chip, before
+        // protect/erase/write. Dry-run has no mutation commands either.
+        let mut short = std::io::Cursor::new(vec![0; 7]);
+        let mut right = make_fake(0x1234);
+        assert_eq!(
+            write_to_programmer(
+                &mut right,
+                &dev,
+                &mut short,
+                false,
+                false,
+                false,
+                false,
+                &mut Silent
+            )
+            .unwrap_err()
+            .code(),
+            "format"
+        );
+        assert_eq!(right.actions, ["begin", "identify", "end"]);
+        let mut right = make_fake(0x1234);
+        write_to_programmer(
+            &mut right,
+            &dev,
+            &mut image,
+            true,
+            false,
+            false,
+            false,
+            &mut Silent,
+        )
+        .unwrap();
+        assert_eq!(right.actions, ["begin", "identify", "end"]);
     }
 
     /// End-to-end over the trait surface without hardware: a fake programmer

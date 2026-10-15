@@ -138,6 +138,56 @@ pub struct VerifiedRead {
 /// In-memory image parsing keeps its separate 256 MiB limit.
 pub const MAX_STREAMED_REGION_BYTES: u64 = crate::format::MAX_STREAMED_IMAGE_BYTES;
 
+// Transfer requests retain the driver's native unit (including NAND erase
+// blocks). Refuse malformed geometry rather than allocating a whole image.
+const MAX_TRANSFER_BLOCK_BYTES: u64 = 64 << 20;
+
+fn checked_streamed_region(region: Region) -> Result<()> {
+    if region.len == 0
+        || region.len > MAX_STREAMED_REGION_BYTES
+        || region.offset.checked_add(region.len).is_none()
+    {
+        return Err(Error::Format(
+            "region exceeds the streamed image limit".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn streamed_step(
+    prog: &mut dyn Programmer,
+    s: &Session,
+    region: Region,
+    dir: crate::caps::TransferDir,
+) -> Result<u64> {
+    let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
+    let step = u64::from(mem.block_size(s, region.kind, dir));
+    if step == 0 || step > MAX_TRANSFER_BLOCK_BYTES {
+        return Err(Error::Format("invalid streamed transfer block size".into()));
+    }
+    Ok(step)
+}
+
+/// Validate the private source and both protocol transfer units before erase
+/// or protect changes. Seek always starts at image offset zero.
+pub fn validate_streamed_write<R: Read + Seek>(
+    prog: &mut dyn Programmer,
+    s: &Session,
+    region: Region,
+    source: &mut R,
+) -> Result<()> {
+    checked_streamed_region(region)?;
+    if source.seek(SeekFrom::End(0))? != region.len {
+        return Err(Error::Format(
+            "programming image does not match the region length".into(),
+        ));
+    }
+    source.seek(SeekFrom::Start(0))?;
+    streamed_step(prog, s, region, crate::caps::TransferDir::Read)?;
+    streamed_step(prog, s, region, crate::caps::TransferDir::Write)?;
+    Ok(())
+}
+
 /// Verification metadata for a raw dump written without retaining the image.
 #[derive(Debug)]
 pub struct StreamedRead {
@@ -170,21 +220,17 @@ pub fn read_verified_to_file<F: Read + Write + Seek>(
     file: &mut F,
     rep: &mut dyn Reporter,
 ) -> Result<StreamedRead> {
-    if region.len == 0 || region.len > MAX_STREAMED_REGION_BYTES {
-        return Err(Error::Format(
-            "region exceeds the streamed read limit".into(),
-        ));
-    }
+    checked_streamed_region(region)?;
     if file.seek(SeekFrom::End(0))? != 0 {
         return Err(Error::Format("streamed read output must be empty".into()));
     }
 
+    let step = streamed_step(prog, s, region, crate::caps::TransferDir::Read)?;
     let mut crc = crc32fast::Hasher::new();
     let mut sha = sha2::Sha256::new();
     rep.event(&Event::Stage("Reading chip (first pass)".into()));
     {
         let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
-        let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Read));
         let mut done = 0u64;
         rep.event(&Event::Progress {
             done,
@@ -212,7 +258,6 @@ pub fn read_verified_to_file<F: Read + Write + Seek>(
     let mut stable = true;
     {
         let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
-        let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Read));
         let mut done = 0u64;
         rep.event(&Event::Progress {
             done,
@@ -304,13 +349,27 @@ pub fn write_region(
     rep: &mut dyn Reporter,
 ) -> Result<()> {
     checked_region_len(region)?;
-    if image.bytes.len() as u64 != region.len {
-        return Err(Error::Format(format!(
-            "image is {} bytes but region is {} bytes",
-            image.bytes.len(),
-            region.len
-        )));
-    }
+    write_region_from_reader(
+        prog,
+        s,
+        region,
+        &mut std::io::Cursor::new(&image.bytes),
+        rep,
+    )
+}
+
+/// Program from a private seekable image and compare readback one native
+/// transfer block at a time. The source must stay immutable throughout.
+pub fn write_region_from_reader<R: Read + Seek>(
+    prog: &mut dyn Programmer,
+    s: &Session,
+    region: Region,
+    source: &mut R,
+    rep: &mut dyn Reporter,
+) -> Result<()> {
+    validate_streamed_write(prog, s, region, source)?;
+    let write_step = streamed_step(prog, s, region, crate::caps::TransferDir::Write)?;
+    let read_step = streamed_step(prog, s, region, crate::caps::TransferDir::Read)?;
 
     rep.event(&Event::Stage("Programming chip".into()));
     // Write loop. Scoped so the `MemoryOps` borrow ends before the read-back
@@ -318,13 +377,14 @@ pub fn write_region(
     {
         let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
         let total = region.len;
-        let step = u64::from(mem.block_size(s, region.kind, crate::caps::TransferDir::Write));
         rep.event(&Event::Progress { done: 0, total });
         let mut done = 0u64;
-        for req in region.blocks(step) {
+        let mut block = Vec::new();
+        for req in region.blocks(write_step) {
             let len = req.len;
-            let start = done as usize;
-            mem.write_block(s, &req, &image.bytes[start..start + len as usize])?;
+            block.resize(len as usize, 0);
+            source.read_exact(&mut block)?;
+            mem.write_block(s, &req, &block)?;
             done += u64::from(len);
             rep.event(&Event::Progress { done, total });
         }
@@ -332,18 +392,63 @@ pub fn write_region(
 
     // Read-back verify.
     rep.event(&Event::Stage("Verifying programmed data".into()));
-    let back = read_region(prog, s, region, rep)?;
-    if let Some(i) = back
-        .bytes
-        .iter()
-        .zip(&image.bytes)
-        .position(|(a, b)| a != b)
-    {
-        return Err(Error::Verify {
-            addr: (region.offset + i as u64) as u32,
+    source.seek(SeekFrom::Start(0))?;
+    let mem = prog.memory().ok_or(Error::Unsupported("memory ops"))?;
+    let mut expected = Vec::new();
+    let mut done = 0;
+    rep.event(&Event::Progress {
+        done,
+        total: region.len,
+    });
+    for req in region.blocks(read_step) {
+        let actual = mem.read_block(s, &req)?;
+        if actual.len() != req.len as usize {
+            return Err(Error::Protocol);
+        }
+        expected.resize(actual.len(), 0);
+        source.read_exact(&mut expected)?;
+        if let Some(i) = actual.iter().zip(&expected).position(|(a, b)| a != b) {
+            return Err(Error::Verify {
+                addr: req.address + i as u64,
+            });
+        }
+        done += u64::from(req.len);
+        rep.event(&Event::Progress {
+            done,
+            total: region.len,
         });
     }
     Ok(())
+}
+
+/// Compare two seekable images using a fixed amount of memory. A size
+/// difference is a mismatch at the first byte beyond their shared prefix.
+pub fn first_file_mismatch<A: Read + Seek, B: Read + Seek>(
+    a: &mut A,
+    b: &mut B,
+) -> Result<Option<u64>> {
+    let a_len = a.seek(SeekFrom::End(0))?;
+    let b_len = b.seek(SeekFrom::End(0))?;
+    a.seek(SeekFrom::Start(0))?;
+    b.seek(SeekFrom::Start(0))?;
+    let common = a_len.min(b_len);
+    let mut a_block = [0u8; 64 * 1024];
+    let mut b_block = [0u8; 64 * 1024];
+    let mut done = 0;
+    while done < common {
+        let len = (common - done).min(a_block.len() as u64) as usize;
+        a.read_exact(&mut a_block[..len])?;
+        b.read_exact(&mut b_block[..len])?;
+        if let Some(i) = a_block[..len]
+            .iter()
+            .zip(&b_block[..len])
+            .position(|(a, b)| a != b)
+        {
+            return Ok(Some(done + i as u64));
+        }
+        done += len as u64;
+    }
+    Ok((a_len != b_len).then_some(common))
 }
 
 #[cfg(test)]
@@ -382,6 +487,8 @@ mod tests {
         reads: usize,
         /// If set, write_block silently corrupts this offset (verify test).
         corrupt_at: Option<usize>,
+        virtual_len: Option<u64>,
+        requests: Vec<(crate::caps::TransferDir, BlockReq)>,
     }
 
     impl FakeProg {
@@ -401,6 +508,8 @@ mod tests {
                 flaky: false,
                 reads: 0,
                 corrupt_at: None,
+                virtual_len: None,
+                requests: Vec::new(),
             }
         }
     }
@@ -438,6 +547,11 @@ mod tests {
     impl crate::caps::MemoryOps for FakeProg {
         fn read_block(&mut self, _s: &Session, req: &BlockReq) -> Result<Vec<u8>> {
             self.reads += 1;
+            self.requests.push((crate::caps::TransferDir::Read, *req));
+            if let Some(len) = self.virtual_len {
+                assert!(req.address + u64::from(req.len) <= len);
+                return Ok(vec![0; req.len as usize]);
+            }
             let start = req.address as usize;
             let mut out = self.mem[start..start + req.len as usize].to_vec();
             // Flip bits on the second full pass to simulate an unstable chip.
@@ -449,6 +563,12 @@ mod tests {
             Ok(out)
         }
         fn write_block(&mut self, _s: &Session, req: &BlockReq, data: &[u8]) -> Result<()> {
+            self.requests.push((crate::caps::TransferDir::Write, *req));
+            if let Some(len) = self.virtual_len {
+                assert!(req.address + u64::from(req.len) <= len);
+                assert_eq!(data.len(), req.len as usize);
+                return Ok(());
+            }
             let start = req.address as usize;
             self.mem[start..start + data.len()].copy_from_slice(data);
             if let Some(at) = self.corrupt_at {
@@ -715,6 +835,118 @@ mod tests {
         assert_eq!(
             rep.stages,
             ["Programming chip", "Verifying programmed data"]
+        );
+    }
+
+    /// A seekable source larger than the legacy limit, without test heap or
+    /// disk consumption proportional to its length.
+    struct ZeroImage {
+        pos: u64,
+        len: u64,
+        largest_read: usize,
+    }
+    impl Read for ZeroImage {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            self.largest_read = self.largest_read.max(bytes.len());
+            let n = (self.len - self.pos).min(bytes.len() as u64) as usize;
+            bytes[..n].fill(0);
+            self.pos += n as u64;
+            Ok(n)
+        }
+    }
+    impl Seek for ZeroImage {
+        fn seek(&mut self, from: SeekFrom) -> std::io::Result<u64> {
+            let pos = match from {
+                SeekFrom::Start(n) => i128::from(n),
+                SeekFrom::End(n) => i128::from(self.len) + i128::from(n),
+                SeekFrom::Current(n) => i128::from(self.pos) + i128::from(n),
+            };
+            if pos < 0 || pos > i128::from(self.len) {
+                return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+            }
+            self.pos = pos as u64;
+            Ok(self.pos)
+        }
+    }
+
+    #[test]
+    fn streamed_write_exceeds_legacy_limit_and_announces_each_pass_once() {
+        let len = crate::format::MAX_IMAGE_BYTES as u64 + 17;
+        let dev = test_device(len, 64 * 1024);
+        let s = session_for(&dev);
+        let mut prog = FakeProg::new(Vec::new());
+        prog.virtual_len = Some(len);
+        let mut image = ZeroImage {
+            pos: 0,
+            len,
+            largest_read: 0,
+        };
+        let mut rep = Collect::default();
+        write_region_from_reader(&mut prog, &s, Region::code(&dev), &mut image, &mut rep).unwrap();
+        assert!(image.largest_read <= 64 * 1024);
+        for dir in [
+            crate::caps::TransferDir::Write,
+            crate::caps::TransferDir::Read,
+        ] {
+            let requests: Vec<_> = prog
+                .requests
+                .iter()
+                .filter(|(d, _)| *d == dir)
+                .map(|(_, r)| r)
+                .collect();
+            assert_eq!(requests.len(), 4097);
+            assert_eq!(requests.iter().filter(|r| r.init).count(), 1);
+            assert!(requests[0].init);
+            assert!(requests.iter().all(|r| r.block_count == 4097));
+            assert_eq!(requests.last().unwrap().len, 17);
+        }
+        assert_eq!(rep.progress.last(), Some(&(len, len)));
+    }
+
+    #[test]
+    fn streamed_write_reports_absolute_mismatch_and_validates_before_mutation() {
+        let dev = test_device(12, 4);
+        let s = session_for(&dev);
+        let region = Region {
+            kind: MemoryKind::Code,
+            offset: 4,
+            len: 8,
+        };
+        let mut prog = FakeProg::new(vec![0xff; 12]);
+        prog.corrupt_at = Some(9);
+        let mut rep = Collect::default();
+        let mut image = std::io::Cursor::new(vec![0; 8]);
+        assert!(matches!(
+            write_region_from_reader(&mut prog, &s, region, &mut image, &mut rep),
+            Err(Error::Verify { addr: 9 })
+        ));
+        prog.requests.clear();
+        let mut short = std::io::Cursor::new(vec![0; 7]);
+        assert_eq!(
+            write_region_from_reader(&mut prog, &s, region, &mut short, &mut rep)
+                .unwrap_err()
+                .code(),
+            "format"
+        );
+        assert!(prog.requests.is_empty());
+    }
+
+    #[test]
+    fn file_comparison_finds_boundary_bytes_and_size_differences() {
+        let data = vec![0xaa; 64 * 1024 + 8];
+        let mut a = std::io::Cursor::new(data.clone());
+        let mut b = std::io::Cursor::new(data);
+        assert_eq!(first_file_mismatch(&mut a, &mut b).unwrap(), None);
+        b.get_mut()[64 * 1024] = 0;
+        assert_eq!(
+            first_file_mismatch(&mut a, &mut b).unwrap(),
+            Some(64 * 1024)
+        );
+        b.get_mut()[64 * 1024] = 0xaa;
+        b.get_mut().pop();
+        assert_eq!(
+            first_file_mismatch(&mut a, &mut b).unwrap(),
+            Some(64 * 1024 + 7)
         );
     }
 
