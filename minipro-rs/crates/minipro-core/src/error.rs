@@ -95,7 +95,7 @@ pub enum Error {
     },
     /// Read-back verification differed from the written image.
     #[error("verify failed at 0x{addr:06x}")]
-    Verify { addr: u32 },
+    Verify { addr: u64 },
     /// The selected programmer lacks a requested capability.
     #[error("unsupported: {0}")]
     Unsupported(&'static str),

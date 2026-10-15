@@ -11,6 +11,7 @@
   A10000000000000000000003 /* MiniProRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* MiniProRunner.swift */; };
   A10000000000000000000004 /* HexBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* HexBuffer.swift */; };
   A10000000000000000000006 /* ChipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* ChipPolicy.swift */; };
+  A10000000000000000000007 /* ChipCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* ChipCatalog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +20,7 @@
   A20000000000000000000003 /* MiniProRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniProRunner.swift; sourceTree = "<group>"; };
   A20000000000000000000005 /* HexBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../Shared/HexBuffer.swift; sourceTree = "<group>"; };
   A20000000000000000000006 /* ChipPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../Shared/ChipPolicy.swift; sourceTree = "<group>"; };
+  A20000000000000000000007 /* ChipCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../Shared/ChipCatalog.swift; sourceTree = "<group>"; };
   A20000000000000000000004 /* XGecuPro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XGecuPro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -30,7 +32,7 @@
   };
   A30000000000000000000002 /* XGecuPro */ = {
    isa = PBXGroup;
-   children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000005, A20000000000000000000006);
+   children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007);
    path = XGecuPro/Sources;
    sourceTree = "<group>";
   };
@@ -81,7 +83,7 @@
   A50000000000000000000001 /* Sources */ = {
    isa = PBXSourcesBuildPhase;
    buildActionMask = 2147483647;
-   files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000006);
+   files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000006, A10000000000000000000007);
    runOnlyForDeploymentPostprocessing = 0;
   };
 /* End PBXSourcesBuildPhase section */
@@ -109,13 +111,13 @@
    buildSettings = {
     ARCHS = arm64;
     CODE_SIGNING_ALLOWED = NO;
-    CURRENT_PROJECT_VERSION = 2;
+    CURRENT_PROJECT_VERSION = 3;
     GENERATE_INFOPLIST_FILE = YES;
     INFOPLIST_KEY_CFBundleDevelopmentRegion = en;
     INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
     LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
     MACOSX_DEPLOYMENT_TARGET = 26.0;
-    MARKETING_VERSION = 1.0.0;
+    MARKETING_VERSION = 1.1.0;
     PRODUCT_BUNDLE_IDENTIFIER = ru.winvist.xgecupro;
     PRODUCT_NAME = "$(TARGET_NAME)";
     SDKROOT = macosx;
@@ -128,13 +130,13 @@
    buildSettings = {
     ARCHS = arm64;
     CODE_SIGNING_ALLOWED = NO;
-    CURRENT_PROJECT_VERSION = 2;
+    CURRENT_PROJECT_VERSION = 3;
     GENERATE_INFOPLIST_FILE = YES;
     INFOPLIST_KEY_CFBundleDevelopmentRegion = en;
     INFOPLIST_KEY_CFBundleDisplayName = "XGecu Pro";
     LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
     MACOSX_DEPLOYMENT_TARGET = 26.0;
-    MARKETING_VERSION = 1.0.0;
+    MARKETING_VERSION = 1.1.0;
     PRODUCT_BUNDLE_IDENTIFIER = ru.winvist.xgecupro;
     PRODUCT_NAME = "$(TARGET_NAME)";
     SDKROOT = macosx;

@@ -3,6 +3,13 @@
 *As of 2026-08-13. Companion to [`minipro-vs-rust.md`](minipro-vs-rust.md) and
 the [README](../minipro-rs/README.md) capability matrix.*
 
+This is a historical backend snapshot. The current native application plan and
+implementation status are in [mac-app/ROADMAP.md](../mac-app/ROADMAP.md).
+The current backend already includes TL866II+, the T76 `update` CLI, streamed
+image operations, and read-only setup diagnostics. T76 pin-contact testing is
+disabled because its legacy opcode produced stale results and corrupted reads;
+the older pin-test entry below must not be read as current supported capability.
+
 ## Where we are
 
 - **Drivers:** T48 / T56 / T76 behind one `Programmer` trait; `detect()`

@@ -6,6 +6,39 @@ source build remains available. Keep the existing Rust CLI as the hardware
 backend and preserve its JSON interface so the GUI cannot
 silently change programmer protocol behavior.
 
+## Current priority — usability before more features (2026-10-15)
+
+The primary user workflow is: seat a chip, select its exact database entry,
+choose a firmware binary, and program it with readback verification.
+
+- First iteration: a dedicated Program workspace with explicit Chip,
+  Firmware, and Program and Verify steps; selected file name and path;
+  readiness guidance and a persistent operation status area.
+- Keep chip reading, file comparison, blank check, and erase available as
+  secondary tools. Put hex editing and operation history in their own tabs.
+- Keep preflight, chip-ID checks, private image snapshots, confirmation,
+  and backend readback verification. Programming uses the chosen file;
+  unsaved hex-buffer edits must be saved first.
+- Build and test on the existing GitHub macOS runner, capture native SwiftUI
+  display fixtures in light/dark and compact windows, and provide a branch
+  app artifact for target-Mac review. Fixture screenshots are not hardware
+  acceptance or a complete accessibility test.
+- After this workflow is reviewed on the target Mac, continue with the
+  full catalog and favorites, then file-backed buffers and streaming.
+
+The user authorized continuing the complete primary roadmap on 2026-10-15.
+Catalog and favorites are implemented and verified on macOS CI: complete database
+browsing, live name/package filtering, persisted favorites at the top of
+the picker, and metadata lookup before chip operations. File-backed buffers
+and streamed conversion, read, verification and programming are also
+implemented and macOS CI-verified. The editor's catalog-size check exercises
+1,140,850,688 bytes, including paging, edit/undo, SHA-256 and file comparison.
+A read-only Check Setup tool also reports chip ID and actual contact-test
+availability. Per-family physical acceptance remains separate.
+
+See [the usability iteration](UX-ITERATION.md) for the design rationale and
+target-Mac review checklist.
+
 ## 1. First usable build — implemented in source
 
 - Create the fork and track upstream separately.
@@ -82,7 +115,7 @@ the recorded results with the original dumps.
 
 ## 3. Additional tools already in source
 
-- Implemented in source: paged full-image hex buffer (256 MiB limit), file
+- Implemented in source: file-backed paged hex buffer (2 GiB decoded limit), file
   open/save for raw, Intel HEX, and S-record images, address jump, HEX and ASCII
   search, per-byte editing, range fill,
   block copy/export, undo/redo, SHA-256, and offline byte-for-byte file
@@ -92,21 +125,18 @@ the recorded results with the original dumps.
 
 ## 4. Requested after basic hardware acceptance
 
-- Add a browsable catalog of the entire available chip database. Let the user
-  mark frequently used entries as favorites; show favorites at the top of the
-  chip picker and when the search field opens. Keep search across the full
-  database and distinguish favorites from hardware-validated read/write
-  support. Do this after the target-Mac detect and read flow is accepted.
-- Replace the in-memory image buffer with a file-backed, paged buffer, and add
-  streamed verification and programming for chips larger than 256 MiB. Raw
-  reads up to 2 GiB already stream to a file and compare a second hardware
-  read without loading the full image into RAM. The pinned
-  T76 V13.21 catalog contains code regions up to 1,140,850,688 bytes
-  (`S34ML08G201Txx00@TSOP48`, including NAND spare area), so a catalog-wide
-  workflow needs streaming verification, conversion, programming, and GUI
-  browsing without loading two full images into RAM. This catalog maximum is
-  a sizing target, not evidence that its NAND algorithm works on the target
-  hardware. Keep per-family hardware acceptance separate from size support.
+- Implemented and CI-verified: complete catalog browsing, live name/package
+  search and persisted favorites at the top of the picker. The pinned T76
+  V13.21 catalog test retrieves all 33,612 entries. Favorites are separate
+  from hardware-validated read/write support.
+- Implemented and CI-verified: file-backed paged buffers and streamed raw,
+  Intel HEX and S-record conversion, read, verification and programming up
+  to 2 GiB decoded. Private spools, block-wise comparison and disk-backed edit
+  history avoid retaining full images in RAM. The pinned catalog contains code
+  regions up to 1,140,850,688 bytes (`S34ML08G201Txx00@TSOP48`, including NAND
+  spare area). At that size the converter and editor passed content checks
+  with about 6.6 MiB and 7.2 MiB maximum resident memory respectively. This is
+  a sizing test; NAND algorithms and adapters require physical acceptance.
 
 ## 5. Optional backlog — wait for the user's decision
 
