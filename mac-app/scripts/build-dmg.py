@@ -33,7 +33,8 @@ def settings_for(app, layout):
         "compression_level": 9,
         "files": [(str(app), layout["appName"])],
         "symlinks": {"Applications": "/Applications"},
-        "hide_extensions": [layout["appName"]],
+        # Do not use hide_extensions for the signed app: dmgbuild implements
+        # it with com.apple.FinderInfo, which invalidates strict verification.
         "icon": str(icon),
         # dmgbuild combines this with background@2x.png into a Retina TIFF.
         "background": str(DESIGN / "background.png"),
