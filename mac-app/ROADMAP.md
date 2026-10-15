@@ -125,21 +125,18 @@ the recorded results with the original dumps.
 
 ## 4. Requested after basic hardware acceptance
 
-- Implemented and CI-verified: a browsable catalog of the entire available chip database. Let the user
-  mark frequently used entries as favorites; show favorites at the top of the
-  chip picker and when the search field opens. Keep search across the full
-  database and distinguish favorites from hardware-validated read/write
-  support. Do this after the target-Mac detect and read flow is accepted.
-- Implemented and CI-verified: replace the in-memory image buffer with a file-backed, paged buffer, and add
-  streamed verification and programming for chips larger than 256 MiB. Raw
-  reads up to 2 GiB already stream to a file and compare a second hardware
-  read without loading the full image into RAM. The pinned
-  T76 V13.21 catalog contains code regions up to 1,140,850,688 bytes
-  (`S34ML08G201Txx00@TSOP48`, including NAND spare area), so a catalog-wide
-  workflow needs streaming verification, conversion, programming, and GUI
-  browsing without loading two full images into RAM. This catalog maximum is
-  a sizing target, not evidence that its NAND algorithm works on the target
-  hardware. Keep per-family hardware acceptance separate from size support.
+- Implemented and CI-verified: complete catalog browsing, live name/package
+  search and persisted favorites at the top of the picker. The pinned T76
+  V13.21 catalog test retrieves all 33,612 entries. Favorites are separate
+  from hardware-validated read/write support.
+- Implemented and CI-verified: file-backed paged buffers and streamed raw,
+  Intel HEX and S-record conversion, read, verification and programming up
+  to 2 GiB decoded. Private spools, block-wise comparison and disk-backed edit
+  history avoid retaining full images in RAM. The pinned catalog contains code
+  regions up to 1,140,850,688 bytes (`S34ML08G201Txx00@TSOP48`, including NAND
+  spare area). At that size the converter and editor passed content checks
+  with about 6.6 MiB and 7.2 MiB maximum resident memory respectively. This is
+  a sizing test; NAND algorithms and adapters require physical acceptance.
 
 ## 5. Optional backlog — wait for the user's decision
 

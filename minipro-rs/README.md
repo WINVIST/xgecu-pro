@@ -11,7 +11,7 @@ proven bit-exact on an MX27C2000, and full write→verify→erase→blank cycles
 three times each on two electrically-erasable Winbond parts (W27C512 64 KB,
 W27C257 32 KB) with distinct data every cycle. The native chip database reads
 XGecu's `InfoICT76.dll` directly (no XML needed) and can provision itself from
-a mirror. 219 tests pass, clippy clean.
+a mirror. 259 workspace tests pass, clippy clean.
 
 > ⚠️ **The T48, T56, and TL866II+ drivers are untested on hardware.** They are
 > reference-only implementations — verified against byte-exact golden
@@ -20,10 +20,32 @@ a mirror. 219 tests pass, clippy clean.
 > [Contributing](#contributing).
 
 ```
-cargo test           # 219 hardware-free protocol/golden/db tests
+cargo test --workspace --locked   # hardware-free protocol/golden/db tests
 cargo clippy --all-targets
 ./target/debug/minipro --json info
 ```
+
+## Images and setup checks
+
+The CLI streams raw, Intel HEX and S-record images through private files for
+conversion, read, write and verification. Decoded regions are bounded at
+2 GiB; text inputs are bounded at 8 GiB. Short programming images are padded
+on disk with the selected chip's erased value before USB is opened. Program
+still checks the ID before protect/erase and verifies readback. Verification
+compares two full chip reads for stability, then compares the first read with
+the supplied image. Output replacement is atomic.
+
+```sh
+minipro convert large.bin output.hex --input-format raw
+minipro --json check 'W27C512@DIP28'
+```
+
+`check` changes no flash contents. It checks the selected chip's ID and reports
+`chip_id_checked`, `pins_checked` and `open_pins`. An unavailable pin test
+reports `pins_checked: false` and `open_pins: null`. T76 contact testing remains
+disabled for the hardware-evidenced reasons below. Use explicit `raw` input
+for firmware binaries when automatic content detection is not desired.
+The separate in-memory core/TUI APIs keep their 256 MiB limit.
 
 ## Driver capability matrix
 

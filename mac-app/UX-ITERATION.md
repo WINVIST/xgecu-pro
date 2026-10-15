@@ -76,6 +76,6 @@ snapshots, disk-backed undo/redo, and byte-for-byte file comparison. CI
 measures the converter and editor separately on a 1,140,850,688-byte image;
 both must remain below 128 MiB maximum resident memory.
 
-Quit waits until an active operation finishes and asks before discarding
+Quit asks the user to wait for an active operation and asks before discarding
 unsaved edits. The discard alert defaults to Cancel. On the target Mac, check
 Command-Q during a read/write and while the Hex Editor has unsaved edits.

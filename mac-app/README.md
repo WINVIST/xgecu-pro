@@ -217,7 +217,7 @@ Short programming images are padded to chip capacity with the part's erased
 byte, as stated in the confirmation dialog.
 The backend checks the chip ID before erase or protect changes; the GUI also
 requires a connected T76 and an ID for mutations.
-Quit is deferred while an operation is running. Unsaved Hex Editor edits
+The app asks you to wait for a running operation before quitting. Unsaved Hex Editor edits
 require an explicit Quit and Discard choice; Cancel is the default so edits
 can be saved first.
 Save a dump before changing a chip. Do not disconnect the programmer during

@@ -409,7 +409,8 @@ private struct HexWorkspace: View {
                             .accessibilityLabel("Hexadecimal buffer address")
                         Button("Go") { model.jumpToAddress() }
                         Spacer()
-                        Text("\(model.bufferOffset.formatted())–\(min(model.bufferOffset + 256, model.bufferSize).formatted())")
+                        Text(String(format: "0x%X–0x%X", model.bufferOffset,
+                                    max(model.bufferOffset, min(model.bufferOffset + 256, model.bufferSize) - 1)))
                             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     .disabled(model.busy || model.bufferSize == 0)
