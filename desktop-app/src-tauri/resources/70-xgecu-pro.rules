@@ -1,0 +1,2 @@
+# XGecu T76 only. Allow the active local desktop user; no world-writable USB nodes.
+SUBSYSTEM=="usb", ATTR{idVendor}=="a466", ATTR{idProduct}=="1a86", TAG+="uaccess"

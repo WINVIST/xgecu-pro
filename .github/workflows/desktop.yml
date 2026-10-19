@@ -1,0 +1,170 @@
+name: Desktop x64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.platform }} x64
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            platform: Windows
+          - os: ubuntu-22.04
+            platform: Linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop-app
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Install Linux build and test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libarchive-tools patchelf xvfb webkit2gtk-driver
+
+      - name: Install locked frontend dependencies
+        run: npm ci --no-fund --no-audit
+
+      - name: Check frontend
+        run: |
+          npm run build
+          npm test
+
+      - name: Test Rust programmer workspace
+        run: |
+          cargo test --manifest-path ../minipro-rs/Cargo.toml --workspace --locked
+          cargo clippy --manifest-path ../minipro-rs/Cargo.toml --workspace --all-targets --locked -- -D warnings
+          cargo fmt --manifest-path ../minipro-rs/Cargo.toml --all -- --check
+
+      - name: Build and stage the programmer helper
+        run: |
+          cargo build --manifest-path ../minipro-rs/Cargo.toml --release --locked
+          npm run stage-helper
+
+      - name: Verify first-use database and offline cache
+        shell: bash
+        run: |
+          helper="../minipro-rs/target/release/minipro"
+          if [ "$RUNNER_OS" = Windows ]; then helper="$helper.exe"; fi
+          node scripts/ci-helper-checks.mjs "$helper"
+          node scripts/check-offline-cache.mjs "$helper"
+
+      - name: Test desktop Rust bridge and HEX engine
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Check large file-backed image
+        run: node scripts/check-large-buffer.mjs
+
+      - name: Stage standalone AppImage extractor
+        if: runner.os == 'Linux'
+        run: bash scripts/prepare-extractor.sh
+
+      - name: Build Linux installation packages
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: npm run tauri -- build --config src-tauri/tauri.linux.conf.json
+
+      - name: Build Windows installation package
+        if: runner.os == 'Windows'
+        run: npm run tauri -- build --config src-tauri/tauri.windows.conf.json
+
+      - name: Collect packages and SHA-256
+        run: node scripts/collect-artifacts.mjs
+
+      - name: Install Linux package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo dpkg -i artifacts/XGecuPro-Linux-x64.deb
+          command -v XGecuPro
+          test -f /usr/lib/udev/rules.d/70-xgecu-pro.rules
+          chmod +x artifacts/XGecuPro-Linux-x64.AppImage
+          artifacts/XGecuPro-Linux-x64.AppImage --appimage-extract > /dev/null
+          test -x squashfs-root/usr/bin/bsdtar
+          python3 scripts/check-appimage-extractor.py
+
+      - name: Install Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installDirectory=Join-Path $env:RUNNER_TEMP 'xgecu-installed'
+          $installer=(Resolve-Path artifacts/XGecuPro-Windows-x64-setup.exe).Path
+          $installation=Start-Process -FilePath $installer -ArgumentList '/S',"/D=$installDirectory" -WindowStyle Hidden -Wait -PassThru
+          if($installation.ExitCode -ne 0){throw "Installer failed: $($installation.ExitCode)"}
+          if(-not (Test-Path "$installDirectory\XGecuPro.exe")){throw 'Installed app is missing'}
+          "XGECU_E2E_APP=$installDirectory\XGecuPro.exe"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          ./scripts/setup-webdriver.ps1
+
+      - name: Install native Tauri test driver
+        run: cargo install tauri-driver --locked
+
+      - name: Check installed Windows application
+        if: runner.os == 'Windows'
+        run: npm run test:e2e
+
+      - name: Check installed Linux application
+        if: runner.os == 'Linux'
+        env:
+          XGECU_E2E_APP: /usr/bin/XGecuPro
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Check AppImage native application with a fresh cache
+        if: runner.os == 'Linux'
+        env:
+          XGECU_E2E_APP: ${{ github.workspace }}/desktop-app/squashfs-root/usr/bin/XGecuPro
+          XGECU_E2E_VARIANT: AppImage
+          APPDIR: ${{ github.workspace }}/desktop-app/squashfs-root
+          XDG_CACHE_HOME: ${{ runner.temp }}/xgecu-appimage-cache
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xgecu-appimage-config
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Upload native UI and verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: XGecuPro-${{ matrix.platform }}-verification
+          path: |
+            desktop-app/test-results/
+            desktop-app/screenshots/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload verified installation packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: XGecuPro-${{ matrix.platform }}-x64
+          path: desktop-app/artifacts/
+          if-no-files-found: error
+          retention-days: 30

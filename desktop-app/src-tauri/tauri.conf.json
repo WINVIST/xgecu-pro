@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "XGecu Pro",
+  "version": "1.2.0-beta.1",
+  "identifier": "ru.winvist.xgecupro",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "XGecu Pro",
+      "width": 1180,
+      "height": 820,
+      "minWidth": 1020,
+      "minHeight": 680,
+      "resizable": true
+    }],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "deb", "appimage"],
+    "category": "DeveloperTool",
+    "shortDescription": "Read, program and verify chips with the XGecu T76",
+    "longDescription": "XGecu Pro combines a T76 programmer workflow, a file-backed HEX editor and USB diagnostics. Windows and Linux hardware validation is pending in this preview release.",
+    "externalBin": ["binaries/minipro"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "resources": ["resources/70-xgecu-pro.rules", "resources/USB-SETUP.txt", "resources/licenses/*"],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false, "languages": ["English"] }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libarchive-tools"],
+        "files": {"/usr/lib/udev/rules.d/70-xgecu-pro.rules": "resources/70-xgecu-pro.rules"}
+      },
+      "appimage": { "bundleMediaFramework": false }
+    }
+  }
+}
