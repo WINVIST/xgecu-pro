@@ -143,7 +143,7 @@ successful chip programming.
 Use Node.js 24, npm and a current Rust stable toolchain. Windows additionally
 needs the MSVC C++ build tools and WebView2. Linux build dependencies follow
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/); install
-`libarchive-tools`, `patchelf`, `xvfb` and `webkit2gtk-driver` for packaging/tests.
+`libarchive-tools`, `patchelf`, `xvfb`, `webkit2gtk-driver` and `time` for packaging/tests.
 
 From `desktop-app`:
 

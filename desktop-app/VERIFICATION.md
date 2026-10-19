@@ -22,8 +22,31 @@ the oldest supported baseline.
 
 Evidence artifacts are `XGecuPro-Windows-verification`,
 `XGecuPro-Linux-verification`, and the existing macOS UI/package artifacts.
-Only successful checks for the final revision are release evidence. Detailed
-completed-run links and final counts are recorded here before handoff.
+Only successful checks for the final revision are release evidence. The
+[pull request checks](https://github.com/WINVIST/xgecu-pro/pull/4/checks) show
+the current revision and all three platform gates; the release itself is
+published by [Verified release](https://github.com/WINVIST/xgecu-pro/actions/workflows/release.yml)
+after its Windows, Linux and macOS jobs succeed for the same tag.
+
+## Development checks recorded on 2026-10-20
+
+- Frontend: 24 tests, strict TypeScript and production build passed.
+- Desktop Rust: 47 tests passed; the large-image test is explicitly run
+  separately, rather than counted as coverage when ignored by the small suite.
+- Programmer workspace: 283 unit and 6 doc tests passed; five hardware/vendor
+  fixture tests were explicitly ignored. Clippy and formatting passed.
+- Windows USB code: GNU cross-target check and Clippy passed; native MSVC
+  compilation and packaged Windows execution remain the CI gate.
+- A compiled Linux development app passed all five real-backend WebDriver
+  scenarios in WSL Ubuntu 25.10: missing programmer, complete catalog and
+  favorite persistence after reload, native HEX edit/cancel/Undo/Redo/copy
+  save, keyboard/dark/minimum-window/125% content scale, USB report export.
+  This supplemental run used WSL's root test account; packaged Linux tests
+  run as the hosted runner's regular user on Ubuntu 22.04.
+- Offline cached lookup succeeded under a separate Linux network namespace;
+  the empty-cache negative control failed with the expected network error.
+
+These development results complement the required package gates above.
 
 ## Visual reference
 

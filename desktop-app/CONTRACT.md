@@ -20,8 +20,10 @@ Failures reject with `{ code: string, message: string, hint?: string }`.
   `{size, offset, bytes: number[], sha256, dirty, canUndo, canRedo, source?: string, originChip?: string, foundOffset?: number, firstMismatch?: number, otherBytes?: number, matches?: boolean, savedPath?: string}`.
 - Event `operation-event` -> `{stage?: string, progress?: {done:number,total:number}, warn?: unknown, note?: string}`. Busy/confirmation state belongs to the caller; backend independently enforces one operation and pending snapshot exclusion.
 
-Production must not include fixture USB adapters. A separately feature-gated E2E build may supply display/test fixtures, never a user-selectable production mock mode.
-Frontend browser preview uses a separate mock adapter and clearly labels itself a preview; production never silently substitutes mocks.
+Production does not include the development fixture adapter. Native E2E tests
+use the real installed Rust backend and helper, supplying only file-picker
+responses through WebDriver. The development browser preview labels its
+synthetic display data explicitly.
 
 The backend independently validates every request, bounds file operations, and
 keeps the operation/confirmation/close state under one shared gate. Frontend

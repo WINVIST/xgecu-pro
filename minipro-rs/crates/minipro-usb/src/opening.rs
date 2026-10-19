@@ -79,6 +79,8 @@ pub(super) fn describe(device: &nusb::Device, report: &mut OpenReport) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ConfigurationReadError {
     Stall,
+    #[cfg(any(target_os = "windows", test))]
+    RequiresClaimedInterface,
     Failed(String),
 }
 
@@ -86,6 +88,8 @@ impl std::fmt::Display for ConfigurationReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Stall => write!(f, "GET_CONFIGURATION: endpoint stalled"),
+            #[cfg(any(target_os = "windows", test))]
+            Self::RequiresClaimedInterface => write!(f, "GET_CONFIGURATION: WinUSB requires an already claimed interface; no additional interface claim or configuration change was performed"),
             Self::Failed(message) => write!(f, "{message}"),
         }
     }
@@ -93,25 +97,51 @@ impl std::fmt::Display for ConfigurationReadError {
 
 type ConfigurationResult = std::result::Result<u8, ConfigurationReadError>;
 
-pub(super) fn read_configuration(device: &nusb::Device) -> ConfigurationResult {
-    let bytes = device
-        .control_in(
-            ControlIn {
-                control_type: ControlType::Standard,
-                recipient: Recipient::Device,
-                request: 8,
-                value: 0,
-                index: 0,
-                length: 1,
-            },
-            SHORT_TIMEOUT,
-        )
-        .wait()
-        .map_err(|e| match e {
-            TransferError::Stall => ConfigurationReadError::Stall,
-            _ => ConfigurationReadError::Failed(format!("GET_CONFIGURATION: {e}")),
-        })?;
+fn configuration_request() -> ControlIn {
+    ControlIn {
+        control_type: ControlType::Standard,
+        recipient: Recipient::Device,
+        request: 8,
+        value: 0,
+        index: 0,
+        length: 1,
+    }
+}
+
+fn configuration_response(
+    result: std::result::Result<Vec<u8>, TransferError>,
+) -> ConfigurationResult {
+    let bytes = result.map_err(|e| match e {
+        TransferError::Stall => ConfigurationReadError::Stall,
+        _ => ConfigurationReadError::Failed(format!("GET_CONFIGURATION: {e}")),
+    })?;
     decode_configuration(&bytes)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn read_configuration(device: &nusb::Device) -> ConfigurationResult {
+    configuration_response(
+        device
+            .control_in(configuration_request(), SHORT_TIMEOUT)
+            .wait(),
+    )
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn read_configuration(_device: &nusb::Device) -> ConfigurationResult {
+    // Device-level EP0 transfers are unavailable in nusb's WinUSB backend.
+    // A failed interface claim must never trigger a second claim just to read
+    // configuration, or turn unavailable evidence into an assumed zero/STALL.
+    Err(ConfigurationReadError::RequiresClaimedInterface)
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn read_claimed_configuration(interface: &nusb::Interface) -> ConfigurationResult {
+    configuration_response(
+        interface
+            .control_in(configuration_request(), SHORT_TIMEOUT)
+            .wait(),
+    )
 }
 
 fn decode_configuration(bytes: &[u8]) -> ConfigurationResult {
@@ -584,5 +614,51 @@ mod tests {
             assert!(claim_with(&io, true, &mut trace, |_| {}).is_err());
             assert!(io.selected.borrow().is_empty());
         }
+    }
+
+    #[test]
+    fn unavailable_preclaim_configuration_never_adds_claims_or_selects_configuration() {
+        let io = fake(&["NotFound"], &[]);
+        io.values
+            .borrow_mut()
+            .push_back(Err(ConfigurationReadError::RequiresClaimedInterface));
+        let mut trace = report();
+        trace.cached_configuration_error = Some("device is not configured".into());
+        assert!(claim_with(&io, true, &mut trace, |_| {}).is_err());
+        assert!(io.selected.borrow().is_empty());
+        assert_eq!(trace.claim_attempts.len(), CLAIM_ATTEMPTS as usize);
+        assert_eq!(trace.device_configuration_before, None);
+        assert_eq!(trace.selected_configuration, None);
+        assert!(trace
+            .configuration_read_error
+            .unwrap()
+            .contains("already claimed interface"));
+        assert!(io.values.borrow().is_empty());
+    }
+
+    #[test]
+    fn configuration_control_keeps_device_recipient_and_rejects_bad_transfer_results() {
+        let request = configuration_request();
+        assert_eq!(request.control_type, ControlType::Standard);
+        assert_eq!(request.recipient, Recipient::Device);
+        assert_eq!(
+            (
+                request.request,
+                request.value,
+                request.index,
+                request.length
+            ),
+            (8, 0, 0, 1)
+        );
+        assert_eq!(configuration_response(Ok(vec![1])), Ok(1));
+        assert_eq!(
+            configuration_response(Err(TransferError::Stall)),
+            Err(ConfigurationReadError::Stall)
+        );
+        assert!(matches!(
+            configuration_response(Err(TransferError::Disconnected)),
+            Err(ConfigurationReadError::Failed(_))
+        ));
+        assert!(configuration_response(Ok(vec![1, 2])).is_err());
     }
 }
