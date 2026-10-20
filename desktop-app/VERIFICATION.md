@@ -58,6 +58,11 @@ after its Windows, Linux and macOS jobs succeed for the same tag.
   cache, an unprivileged UID, Openbox and a private D-Bus/Xvfb session in WSL
   Ubuntu 25.10. WebKit sandboxing remained enabled; all WebDriver screenshots
   completed. This supplements, rather than replaces, the baseline package gates.
+- The CI-built NSIS package was installed in a separate test directory on
+  Windows 11 Pro x64 (build 26300). All five native WebDriver scenarios passed
+  in 13.5 seconds using the installed WebView2 155.0.4283.62 and matching driver,
+  a fresh cache/profile, and a measured Medium/non-elevated user token.
+  Native screenshots, keyboard focus, compact layout and 125% scale passed.
 - Offline cached lookup succeeded under a separate Linux network namespace;
   the empty-cache negative control failed with the expected network error.
 - The explicit release-profile large-image test passed both requested sizes
