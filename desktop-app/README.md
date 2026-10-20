@@ -188,6 +188,9 @@ a private WebView2 test profile and attaches Tauri WebDriver to its loopback
 port. It uses the installed runtime and leaves the normal app configuration
 unchanged. Run this QA script in PowerShell 7.4 or later, with matching Edge
 WebDriver and `tauri-driver` on PATH.
+When called from an elevated CI process, the script delegates its QA branch
+to a restricted Medium Integrity token for the same user and records the
+measured privilege level. It does not change system policies or user accounts.
 `node scripts/check-large-buffer.mjs` explicitly runs the 1.14 GiB and 2 GiB
 test and checks Linux engine peak RSS below 128 MiB, excluding compilation.
 

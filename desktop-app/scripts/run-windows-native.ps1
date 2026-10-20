@@ -1,5 +1,9 @@
 #requires -Version 7.4
-param([string]$Application = $env:XGECU_E2E_APP)
+param(
+    [string]$Application = $env:XGECU_E2E_APP,
+    [switch]$RequireMedium,
+    [string]$ExpectedUserSid
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -9,6 +13,45 @@ if (-not $Application -or -not (Test-Path -LiteralPath $Application -PathType Le
 }
 $Application = (Resolve-Path -LiteralPath $Application).ProviderPath
 $appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if (-not ('Xgecu.Qa.MediumLaunch' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'windows-medium-launch.cs') }
+$integrityRid = [Xgecu.Qa.MediumLaunch]::CurrentIntegrity()
+$tokenElevation = [Xgecu.Qa.MediumLaunch]::CurrentElevated()
+$userSid = [Xgecu.Qa.MediumLaunch]::CurrentUserSid()
+if ($ExpectedUserSid -and $ExpectedUserSid -ne $userSid) { throw 'The QA process user differs from the launching user.' }
+if ($RequireMedium -and ($integrityRid -ne 8192 -or $tokenElevation)) {
+    throw "The delegated QA process must be Medium/non-elevated; actual RID=$integrityRid, TokenElevation=$tokenElevation."
+}
+if ($integrityRid -lt 8192 -or $userSid -eq 'S-1-5-18') { throw 'QA requires an interactive user token at Medium Integrity or above.' }
+if ($integrityRid -ne 8192 -or $tokenElevation) {
+    # High-IL WebView2 ignores user-scoped WEBVIEW2_* overrides. Re-run the
+    # entire QA branch at Medium IL; app, npm, and drivers inherit that token.
+    # https://learn.microsoft.com/microsoft-edge/webview2/concepts/security
+    $bootstrapDirectory = Join-Path $appRoot ('test-results\windows-native-bootstrap-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $bootstrapDirectory -Force | Out-Null
+    $bootstrapFile = Join-Path $bootstrapDirectory 'token-launch.json'
+    $bootstrap = [ordered]@{
+        callerIntegrityRid = $integrityRid; callerTokenElevation = $tokenElevation; userSid = $userSid
+        expectedChildIntegrityRid = 8192; expectedChildTokenElevation = $false
+        application = $Application; started = [DateTime]::UtcNow.ToString('o'); childExitCode = $null
+    }
+    $bootstrapEncoding = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($bootstrapFile, ($bootstrap | ConvertTo-Json), $bootstrapEncoding)
+    try {
+        $powershellExecutable = [System.Environment]::ProcessPath
+        $childArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $PSCommandPath,
+            '-Application', $Application, '-RequireMedium', '-ExpectedUserSid', $userSid)
+        Write-Output "[windows-native] Delegating same-user QA: RID=$integrityRid, TokenElevation=$tokenElevation -> Medium/non-elevated"
+        $bootstrap.childExitCode = [Xgecu.Qa.MediumLaunch]::Run($powershellExecutable, $childArguments, $appRoot,
+            (Join-Path $bootstrapDirectory 'qa.stdout.log'), (Join-Path $bootstrapDirectory 'qa.stderr.log'))
+        if ($bootstrap.childExitCode -ne 0) { throw "The Medium Integrity QA branch failed (exit $($bootstrap.childExitCode))." }
+    } finally {
+        $bootstrap.finished = [DateTime]::UtcNow.ToString('o')
+        [System.IO.File]::WriteAllText($bootstrapFile, ($bootstrap | ConvertTo-Json), $bootstrapEncoding)
+        Write-Output "Same-user token delegation evidence retained at $bootstrapDirectory"
+    }
+    return
+}
+Write-Output "[windows-native] Actual QA token: integrity RID=$integrityRid, TokenElevation=$tokenElevation; same user confirmed"
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
 $runDirectory = Join-Path $appRoot ('test-results\windows-native-' + [guid]::NewGuid().ToString('N'))
 $webviewProfile = Join-Path $runDirectory 'webview2-profile'
@@ -59,6 +102,7 @@ $childEnvironment = @{
 $metadata = [ordered]@{
     application = $Application; attachAddress = $attachAddress; userDataFolder = $webviewProfile
     browserArguments = $arguments; appProcessId = $null; ready = $false; testExitCode = $null
+    integrityRid = $integrityRid; tokenElevation = $tokenElevation; userSid = $userSid
     hardwareTested = $false; started = [DateTime]::UtcNow.ToString('o')
 }
 $app = $null

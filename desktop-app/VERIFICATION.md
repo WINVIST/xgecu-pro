@@ -30,6 +30,9 @@ Windows QA starts the installed executable with a private WebView2 profile
 and a loopback debugging port, then attaches through Tauri WebDriver. This
 uses Microsoft's documented attach mode with the current runtime; normal
 application launches do not enable that test port or change runtime settings.
+An elevated CI caller delegates only its QA branch to a restricted token for
+the same user. The child checks Medium Integrity and non-elevated status before
+launching the app and drivers; token measurements and output remain in evidence.
 Only successful checks for the final revision are release evidence. The
 [pull request checks](https://github.com/WINVIST/xgecu-pro/pull/4/checks) show
 the current revision and all three platform gates; the release itself is
