@@ -37,6 +37,9 @@ impl Drop for PrivateDirectory {
         // created inside this owned directory, without following symlinks.
         #[cfg(windows)]
         {
+            // On Windows this clears the DOS read-only attribute on our own
+            // snapshots; it does not broaden Unix permissions.
+            #[allow(clippy::permissions_set_readonly_false)]
             fn writable(path: &Path) {
                 if let Ok(meta) = fs::symlink_metadata(path) {
                     if meta.file_type().is_symlink() {
