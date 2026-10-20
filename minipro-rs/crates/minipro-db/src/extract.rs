@@ -100,6 +100,16 @@ impl Extractor {
     }
 
     fn executable(self) -> PathBuf {
+        #[cfg(windows)]
+        if self == Extractor::BsdTar {
+            // GUI-side imports do not inherit the helper runner's PATH.
+            // Anchor both installed processes to their own bundle instead.
+            if let Ok(executable) = std::env::current_exe() {
+                if let Some(bundled) = windows_bundled_bsdtar(&executable) {
+                    return bundled;
+                }
+            }
+        }
         #[cfg(target_os = "linux")]
         if self == Extractor::BsdTar {
             if let Some(appdir) = std::env::var_os("APPDIR").filter(|p| !p.is_empty()) {
@@ -218,6 +228,15 @@ impl Extractor {
             std::thread::sleep(Duration::from_millis(100));
         }
     }
+}
+
+#[cfg(any(windows, test))]
+fn windows_bundled_bsdtar(executable: &Path) -> Option<PathBuf> {
+    let directory = executable.parent()?;
+    ["resources/tools/bsdtar.exe", "tools/bsdtar.exe"]
+        .into_iter()
+        .map(|relative| directory.join(relative))
+        .find(|candidate| candidate.is_file())
 }
 
 fn extracted_tree_exceeds_limit(root: &Path) -> Result<bool> {
@@ -512,6 +531,45 @@ fn find_installer_exe(root: &Path) -> Result<Option<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_bundle_lookup_anchors_both_gui_and_helper_without_searching_outside() {
+        let root = tempfile::tempdir().unwrap();
+        let installed = root.path().join("installed app База");
+        let unrelated = root.path().join("unrelated PATH directory");
+        std::fs::create_dir_all(&installed).unwrap();
+        std::fs::create_dir_all(&unrelated).unwrap();
+        std::fs::write(unrelated.join("bsdtar.exe"), b"external tool").unwrap();
+        let executables = [
+            installed.join("XGecuPro.exe"),
+            installed.join("minipro.exe"),
+        ];
+        for executable in &executables {
+            assert_eq!(windows_bundled_bsdtar(executable), None);
+        }
+        let bundled = installed.join("resources/tools/bsdtar.exe");
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"bundled tool").unwrap();
+        for executable in &executables {
+            assert_eq!(windows_bundled_bsdtar(executable), Some(bundled.clone()));
+        }
+    }
+
+    #[test]
+    fn windows_bundle_lookup_accepts_both_layouts_and_prefers_resources() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("XGecuPro.exe");
+        let tools = root.path().join("tools/bsdtar.exe");
+        let resources = root.path().join("resources/tools/bsdtar.exe");
+        std::fs::create_dir_all(tools.parent().unwrap()).unwrap();
+        std::fs::write(&tools, b"tools layout").unwrap();
+        // A directory with the filename of an executable must not shadow it.
+        std::fs::create_dir_all(&resources).unwrap();
+        assert_eq!(windows_bundled_bsdtar(&executable), Some(tools.clone()));
+        std::fs::remove_dir(&resources).unwrap();
+        std::fs::write(&resources, b"resources layout").unwrap();
+        assert_eq!(windows_bundled_bsdtar(&executable), Some(resources));
+    }
 
     #[test]
     fn windows_prefers_utf8_bsdtar_then_system_tar_before_optional_tools() {

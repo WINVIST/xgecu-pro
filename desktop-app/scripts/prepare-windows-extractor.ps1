@@ -53,7 +53,9 @@ try { $manifest.Save($writer) } finally { $writer.Dispose() }
 $definitions = @(
     '-DBUILD_SHARED_LIBS=OFF', '-DENABLE_TAR=ON', '-DENABLE_TAR_SHARED=OFF',
     '-DENABLE_TEST=OFF', '-DENABLE_CPIO=OFF', '-DENABLE_CAT=OFF', '-DENABLE_UNZIP=OFF',
-    '-DENABLE_CNG=ON', '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW',
+    # Only fixed archive paths/globs are used. Bypass upstream's optional regex
+    # discovery, which treats disabled libgcc as fatal on an MSVC-only host.
+    '-DPOSIX_REGEX_LIB=NONE', '-DENABLE_CNG=ON', '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW',
     '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded', '-DMSVC_USE_STATIC_CRT=ON', '-DCMAKE_C_FLAGS=/utf-8'
 )
 foreach ($feature in @('ZLIB', 'BZip2', 'LZMA', 'ZSTD', 'LZ4', 'LZO', 'OPENSSL', 'NETTLE',
