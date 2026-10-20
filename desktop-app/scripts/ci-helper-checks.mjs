@@ -6,6 +6,9 @@ import assert from 'node:assert/strict';
 
 const helper=resolve(process.argv[2]);
 const environment={...process.env,MINIPRO_REQUIRE_MODEL:'T76',MINIPRO_REQUIRE_CHIP_ID:'1',MINIPRO_TRUST_PINNED_DB_ONLY:'1'};
+// Minimal Debian installations need not define a UTF-8 desktop locale.
+// Exercise the real pinned first-use extraction under that inherited locale.
+if(process.platform==='linux'){environment.LC_ALL='C';delete environment.LANG;}
 for(const name of ['MINIPRO_DB_DIR','MINIPRO_DB_URL','MINIPRO_VENDOR_URL','MINIPRO_KEEP_BITSTREAM'])delete environment[name];
 const run=(...args)=>JSON.parse(execFileSync(helper,['--json',...args],{env:environment,encoding:'utf8',maxBuffer:16*1024*1024}));
 const diagnostic=run('usb-diagnose');
@@ -31,5 +34,5 @@ assert.equal(run('convert',source,dest).ok,true);
 assert.equal(run('convert',dest,back).ok,true);
 assert.deepEqual(readFileSync(back),readFileSync(source));
 mkdirSync('test-results',{recursive:true});
-writeFileSync('test-results/helper-checks.json',JSON.stringify({catalogEntries:all.n,diagnostic,unicodeRoundtrip:true},null,2));
+writeFileSync('test-results/helper-checks.json',JSON.stringify({catalogEntries:all.n,diagnostic,unicodeRoundtrip:true,inheritedLocale:environment.LC_ALL||null},null,2));
 console.log(`Helper checked: ${all.n} catalog entries; no-device diagnostic; Unicode format roundtrip`);

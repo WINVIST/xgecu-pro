@@ -133,6 +133,12 @@ impl Extractor {
     fn command(self) -> Command {
         let mut command = Command::new(self.executable());
         hide_console(&mut command);
+        // Vendor archives contain UTF-8 names even for members we do not select.
+        // The C locale makes libarchive reject those headers. C.UTF-8 is
+        // available on the supported glibc Linux baselines; override only this
+        // child process, without changing the app's or caller's locale.
+        #[cfg(target_os = "linux")]
+        command.env("LC_ALL", "C.UTF-8");
         #[cfg(target_os = "linux")]
         if self == Extractor::BsdTar {
             if let Some(appdir) = std::env::var_os("APPDIR").filter(|p| !p.is_empty()) {
@@ -709,6 +715,81 @@ mod tests {
         let large = std::fs::File::create(dir.path().join("large")).unwrap();
         large.set_len((1u64 << 30) + 1).unwrap();
         assert!(extracted_tree_exceeds_limit(dir.path()).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_extractor_reads_utf8_archive_with_c_locale_parent() {
+        const CHILD_MARKER: &str = "XGECU_TEST_C_LOCALE_EXTRACT_CHILD";
+        if std::env::var_os(CHILD_MARKER).is_none() {
+            // Isolate the inherited locale from the other parallel tests.
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "extract::tests::linux_extractor_reads_utf8_archive_with_c_locale_parent",
+                    "--nocapture",
+                ])
+                .env(CHILD_MARKER, "1")
+                .env("LC_ALL", "C")
+                .env_remove("LANG")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "C-locale extraction regression failed:\n{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        assert_eq!(std::env::var("LC_ALL").unwrap(), "C");
+        assert!(std::env::var_os("LANG").is_none());
+        let tool = Extractor::BsdTar;
+        assert!(
+            probe(tool),
+            "Linux extraction tests require libarchive-tools"
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source");
+        let destination = directory.path().join("selected");
+        let complete = directory.path().join("complete");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::create_dir_all(&complete).unwrap();
+        let catalog = b"catalog bytes\x00\xff";
+        let document = b"unselected vendor document";
+        std::fs::write(source.join("InfoICT76.dll"), catalog).unwrap();
+        std::fs::write(source.join("中文说明.pdf"), document).unwrap();
+        let archive = directory.path().join("unicode.tar");
+        // Prepare an explicitly UTF-8 fixture independently of the behavior
+        // under test, then use the production extraction path below.
+        let status = Command::new(tool.executable())
+            .env("LC_ALL", "C.UTF-8")
+            .args(["--format", "pax", "-cf"])
+            .arg(&archive)
+            .current_dir(&source)
+            .args(["InfoICT76.dll", "中文说明.pdf"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        tool.run(&archive, &destination, &["InfoICT76.dll"])
+            .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("InfoICT76.dll")).unwrap(),
+            catalog
+        );
+        assert!(!destination.join("中文说明.pdf").exists());
+        tool.run(&archive, &complete, &[]).unwrap();
+        assert_eq!(
+            std::fs::read(complete.join("InfoICT76.dll")).unwrap(),
+            catalog
+        );
+        assert_eq!(
+            std::fs::read(complete.join("中文说明.pdf")).unwrap(),
+            document
+        );
+        // The parent test process still retains the caller's original locale.
+        assert_eq!(std::env::var("LC_ALL").unwrap(), "C");
     }
 
     #[test]

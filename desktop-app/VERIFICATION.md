@@ -69,6 +69,9 @@ after its Windows, Linux and macOS jobs succeed for the same tag.
   resolved the reproduced headless screenshot stall; assertions were unchanged.
 - Offline cached lookup succeeded under a separate Linux network namespace;
   the empty-cache negative control failed with the expected network error.
+- Fresh pinned database preparation also succeeded as an ordinary Linux user
+  with `LANG` unset and `LC_ALL=C`. Only the extractor child receives a UTF-8
+  locale. The archive regression and Linux helper CI preserve this parent locale.
 - The explicit release-profile large-image test passed both requested sizes
   in 8.91 s, with 3,004 KiB peak RSS measured for the engine test process.
 
