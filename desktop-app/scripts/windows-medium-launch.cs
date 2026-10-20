@@ -31,6 +31,10 @@ namespace Xgecu.Qa
 
         [StructLayout(LayoutKind.Sequential)]
         struct SidAndAttributes { public IntPtr Sid; public uint Attributes; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct TokenGroupsLayout { public uint Count; public SidAndAttributes First; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct GenericMapping { public uint Read, Write, Execute, All; }
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         struct StartupInfo
         {
@@ -63,6 +67,13 @@ namespace Xgecu.Qa
         [DllImport("advapi32.dll", SetLastError = true)]
         static extern bool CreateRestrictedToken(NativeHandle original, uint flags, uint disabledCount,
             IntPtr disabled, uint deletedCount, IntPtr deleted, uint restrictedCount, IntPtr restricted, out NativeHandle token);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool DuplicateTokenEx(NativeHandle token, uint access, IntPtr attributes,
+            int level, int type, out NativeHandle duplicate);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool AccessCheck([In] byte[] descriptor, NativeHandle token, uint desired,
+            ref GenericMapping mapping, IntPtr privileges, ref uint size, out uint granted,
+            [MarshalAs(UnmanagedType.Bool)] out bool allowed);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern NativeHandle CreateFileW(string name, uint access, uint share, ref SecurityAttributes security,
             uint disposition, uint attributes, IntPtr template);
@@ -95,6 +106,91 @@ namespace Xgecu.Qa
         static extern bool SetUserObjectSecurity(IntPtr handle, ref uint information, [In] byte[] descriptor);
 
         static Win32Exception Error(string operation) { return new Win32Exception(Marshal.GetLastWin32Error(), operation); }
+
+        static T TokenValue<T>(NativeHandle token, int kind, Func<IntPtr, T> read)
+        {
+            uint size;
+            GetTokenInformation(token, kind, IntPtr.Zero, 0, out size);
+            if (size == 0) throw Error("GetTokenInformation(size, " + kind + ")");
+            IntPtr buffer = Marshal.AllocHGlobal(checked((int)size));
+            try {
+                if (!GetTokenInformation(token, kind, buffer, size, out size)) throw Error("GetTokenInformation(" + kind + ")");
+                return read(buffer);
+            } finally { Marshal.FreeHGlobal(buffer); }
+        }
+
+        static string TokenSid(NativeHandle token, int kind)
+        {
+            return TokenValue(token, kind, p => new SecurityIdentifier(Marshal.ReadIntPtr(p)).Value);
+        }
+
+        static RawAcl DefaultDacl(NativeHandle token)
+        {
+            return TokenValue(token, 6, p => {
+                IntPtr acl = Marshal.ReadIntPtr(p);
+                if (acl == IntPtr.Zero) return null;
+                var bytes = new byte[unchecked((ushort)Marshal.ReadInt16(acl, 2))];
+                Marshal.Copy(acl, bytes, 0, bytes.Length);
+                return new RawAcl(bytes, 0);
+            });
+        }
+
+        static string GroupList(NativeHandle token, int kind)
+        {
+            return TokenValue(token, kind, p => {
+                uint count = unchecked((uint)Marshal.ReadInt32(p));
+                int offset = Marshal.OffsetOf<TokenGroupsLayout>("First").ToInt32();
+                var result = new StringBuilder("count=" + count);
+                for (int i = 0; i < Math.Min(count, 32); i++) {
+                    var value = Marshal.PtrToStructure<SidAndAttributes>(IntPtr.Add(p, offset + i * Marshal.SizeOf<SidAndAttributes>()));
+                    result.Append(' ').Append(new SecurityIdentifier(value.Sid).Value).Append(":0x").Append(value.Attributes.ToString("X8"));
+                }
+                return result.ToString();
+            });
+        }
+
+        static void DescribeToken(string name, NativeHandle token)
+        {
+            // Bounded security metadata only: no environment, credentials, or command line.
+            var acl = DefaultDacl(token);
+            var descriptor = new RawSecurityDescriptor(ControlFlags.DiscretionaryAclPresent,
+                new SecurityIdentifier(TokenSid(token, 4)), null, null, acl);
+            Console.WriteLine("[windows-native] Token " + name + ": IL=" + Integrity(token) +
+                " elevated=" + TokenValue(token, 20, p => Marshal.ReadInt32(p) != 0) +
+                " user=" + TokenSid(token, 1) + " owner=" + TokenSid(token, 4) +
+                " default=" + descriptor.GetSddlForm(AccessControlSections.Owner | AccessControlSections.Access));
+            Console.WriteLine("[windows-native] Token " + name + " groups: " + GroupList(token, 2));
+            Console.WriteLine("[windows-native] Token " + name + " restricting SIDs: " + GroupList(token, 11));
+        }
+
+        // A UAC-disabled administrator's default owner/DACL can retain only the
+        // Administrators group, which LUA_TOKEN marks deny-only. Repair only the
+        // NEW token's defaults so its child can access its own kernel objects.
+        // https://learn.microsoft.com/windows/win32/api/securitybaseapi/nf-securitybaseapi-settokeninformation
+        static void SetOwnedDefaults(NativeHandle token)
+        {
+            var user = new SecurityIdentifier(TokenSid(token, 1));
+            var sid = new byte[user.BinaryLength]; user.GetBinaryForm(sid, 0);
+            IntPtr owner = Marshal.AllocHGlobal(IntPtr.Size + sid.Length);
+            try {
+                Marshal.WriteIntPtr(owner, IntPtr.Add(owner, IntPtr.Size));
+                Marshal.Copy(sid, 0, IntPtr.Add(owner, IntPtr.Size), sid.Length);
+                if (!SetTokenInformation(token, 4, owner, checked((uint)(IntPtr.Size + sid.Length)))) throw Error("SetTokenInformation(TokenOwner=current user)");
+            } finally { Marshal.FreeHGlobal(owner); }
+            var acl = DefaultDacl(token) ?? new RawAcl(2, 2);
+            int position = 0;
+            while (position < acl.Count && (acl[position].AceFlags & AceFlags.Inherited) == 0) position++;
+            acl.InsertAce(position++, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, 0x10000000, user, false, null));
+            acl.InsertAce(position, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, 0x10000000,
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), false, null));
+            var bytes = new byte[acl.BinaryLength]; acl.GetBinaryForm(bytes, 0);
+            IntPtr dacl = Marshal.AllocHGlobal(IntPtr.Size + bytes.Length);
+            try {
+                Marshal.WriteIntPtr(dacl, IntPtr.Add(dacl, IntPtr.Size));
+                Marshal.Copy(bytes, 0, IntPtr.Add(dacl, IntPtr.Size), bytes.Length);
+                if (!SetTokenInformation(token, 6, dacl, checked((uint)(IntPtr.Size + bytes.Length)))) throw Error("SetTokenInformation(TokenDefaultDacl=current user/System)");
+            } finally { Marshal.FreeHGlobal(dacl); }
+        }
 
         static string UserObjectName(IntPtr handle)
         {
@@ -131,14 +227,41 @@ namespace Xgecu.Qa
             Grant stationGrant, desktopGrant;
             public string Path { get; private set; }
 
-            static byte[] Read(IntPtr handle)
+            static byte[] Read(IntPtr handle, uint information = 4)
             {
-                uint information = 4, needed; // DACL only; never change owner/SACL.
+                uint needed; // Writes below are DACL only; never change owner/SACL.
                 GetUserObjectSecurity(handle, ref information, null, 0, out needed);
                 if (needed == 0) throw Error("GetUserObjectSecurity(size)");
                 var descriptor = new byte[needed];
                 if (!GetUserObjectSecurity(handle, ref information, descriptor, needed, out needed)) throw Error("GetUserObjectSecurity(DACL)");
                 return descriptor;
+            }
+
+            static void DescribeObject(string name, IntPtr handle, NativeHandle token, GenericMapping mapping)
+            {
+                try {
+                    // LABEL_SECURITY_INFORMATION requests just the mandatory label,
+                    // not the audit SACL. Fall back explicitly if the OS denies it.
+                    byte[] security;
+                    try { security = Read(handle, 0x17); }
+                    catch (Win32Exception e) {
+                        Console.WriteLine("[windows-native] " + name + " label unavailable: Win32=" + e.NativeErrorCode);
+                        security = Read(handle, 7);
+                    }
+                    Console.WriteLine("[windows-native] " + name + " security=" + new RawSecurityDescriptor(security, 0).GetSddlForm(AccessControlSections.All));
+                    NativeHandle impersonation;
+                    if (!DuplicateTokenEx(token, 0x8, IntPtr.Zero, 2, 2, out impersonation)) throw Error("DuplicateTokenEx(AccessCheck)");
+                    using (impersonation) {
+                        IntPtr privileges = Marshal.AllocHGlobal(4096);
+                        try {
+                            uint size = 4096, granted; bool allowed;
+                            if (!AccessCheck(Read(handle, 7), impersonation, 0x02000000, ref mapping, privileges, ref size, out granted, out allowed))
+                                throw Error("AccessCheck(MAXIMUM_ALLOWED)");
+                            Console.WriteLine("[windows-native] " + name + " restricted DACL access: allowed=" + allowed +
+                                " maximum=0x" + granted.ToString("X8") + " full=" + ((granted & mapping.All) == mapping.All));
+                        } finally { Marshal.FreeHGlobal(privileges); }
+                    }
+                } catch (Win32Exception e) { Console.WriteLine("[windows-native] " + name + " access diagnostic unavailable: Win32=" + e.NativeErrorCode); }
             }
             static void Write(IntPtr handle, byte[] descriptor)
             {
@@ -208,7 +331,7 @@ namespace Xgecu.Qa
                 }
             }
 
-            public static DesktopAccess ForElevatedCaller()
+            public static DesktopAccess ForElevatedCaller(NativeHandle token)
             {
                 if (CurrentIntegrity() < 0x3000 && !CurrentElevated()) return null;
                 var scope = new DesktopAccess();
@@ -217,15 +340,21 @@ namespace Xgecu.Qa
                     string stationName = UserObjectName(GetProcessWindowStation());
                     string desktopName = UserObjectName(GetThreadDesktop(GetCurrentThreadId()));
                     scope.Path = stationName + "\\" + desktopName;
-                    // Only these owned handles have WRITE_DAC. The child gets
-                    // GUI interaction + READ_CONTROL, not ACL/owner/delete rights.
+                    // CreateProcessAsUser requires full access to both objects.
+                    // Only same-user access is added, and restored in Dispose.
                     scope.station = OpenWindowStationW(stationName, false, 0x00060002);
                     if (scope.station == IntPtr.Zero) throw Error("OpenWindowStationW(READ_CONTROL | WRITE_DAC)");
                     scope.desktop = OpenDesktopW(desktopName, 0, false, 0x00060081);
                     if (scope.desktop == IntPtr.Zero) throw Error("OpenDesktopW(READ_CONTROL | WRITE_DAC)");
+                    var stationMapping = new GenericMapping { Read = 0x20303, Write = 0x2001c, Execute = 0x20060, All = 0xf037f };
+                    var desktopMapping = new GenericMapping { Read = 0x20041, Write = 0x200be, Execute = 0x20100, All = 0xf01ff };
+                    DescribeObject("station before", scope.station, token, stationMapping);
+                    DescribeObject("desktop before", scope.desktop, token, desktopMapping);
                     var user = new SecurityIdentifier(CurrentUserSid());
-                    scope.stationGrant = Add(scope.station, user, 0x0002037f);
-                    scope.desktopGrant = Add(scope.desktop, user, 0x000201ff);
+                    scope.stationGrant = Add(scope.station, user, 0x000f037f);
+                    scope.desktopGrant = Add(scope.desktop, user, 0x000f01ff);
+                    DescribeObject("station after", scope.station, token, stationMapping);
+                    DescribeObject("desktop after", scope.desktop, token, desktopMapping);
                     Console.WriteLine("[windows-native] Temporary same-user GUI access: " + scope.Path);
                     return scope;
                 }
@@ -352,15 +481,21 @@ namespace Xgecu.Qa
             // Restricted versions of our own token are exempt from the
             // SeAssignPrimaryToken requirement. CreateProcessAsUser temporarily
             // enables SeIncreaseQuota if held; missing rights fail explicitly.
-            using (var desktopAccess = DesktopAccess.ForElevatedCaller())
             using (var original = CurrentToken(TokenAccess))
             {
+                bool elevatedCaller = Integrity(original) >= 0x3000 || TokenValue(original, 20, p => Marshal.ReadInt32(p) != 0);
+                DescribeToken("original", original);
                 NativeHandle restricted;
                 if (!CreateRestrictedToken(original, DisableMaxPrivilege | LuaToken, 0, IntPtr.Zero, 0,
                     IntPtr.Zero, 0, IntPtr.Zero, out restricted)) throw Error("CreateRestrictedToken(DISABLE_MAX_PRIVILEGE | LUA_TOKEN)");
                 using (restricted)
                 {
                     SetMedium(restricted);
+                    DescribeToken("restricted before defaults", restricted);
+                    if (elevatedCaller) SetOwnedDefaults(restricted);
+                    DescribeToken("restricted launch", restricted);
+                    using (var desktopAccess = DesktopAccess.ForElevatedCaller(restricted))
+                    {
                     var security = new SecurityAttributes { length = (uint)Marshal.SizeOf<SecurityAttributes>(), inherit = true };
                     using (var output = Output(stdout, ref security))
                     using (var error = Output(stderr, ref security))
@@ -420,6 +555,7 @@ namespace Xgecu.Qa
                             if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
                             if (handles != IntPtr.Zero) Marshal.FreeHGlobal(handles);
                         }
+                    }
                     }
                 }
             }

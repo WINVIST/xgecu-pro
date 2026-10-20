@@ -39,7 +39,21 @@ $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $childFile,
 $exitCode = [Xgecu.Qa.MediumLaunch]::Run([Environment]::ProcessPath, $arguments, $appRoot,
     (Join-Path $evidence 'stdout.log'), (Join-Path $evidence 'stderr.log'))
 if ($exitCode -ne 0) {
-    $hexCode = '{0:X8}' -f ([uint32]([long]$exitCode -band 0xffffffff))
+    $hexCode = '{0:X8}' -f ([uint32]([long]$exitCode -band 4294967295L))
+    [IO.File]::WriteAllText((Join-Path $evidence 'child-exit.json'),
+        (@{ exitCode = $exitCode; hexCode = $hexCode } | ConvertTo-Json), $encoding)
+    # Distinguish a PowerShell initialization failure from a failure of every
+    # restricted process, using the same launcher and an OS-provided executable.
+    try {
+        $cmdExit = [Xgecu.Qa.MediumLaunch]::Run($env:ComSpec,
+            @('/d', '/c', 'echo XGECU_NATIVE_PROBE'), $appRoot,
+            (Join-Path $evidence 'cmd.stdout.log'), (Join-Path $evidence 'cmd.stderr.log'))
+        [IO.File]::WriteAllText((Join-Path $evidence 'cmd-exit.json'),
+            (@{ exitCode = $cmdExit } | ConvertTo-Json), $encoding)
+        Write-Output "Restricted OS command diagnostic: exit $cmdExit"
+    } catch {
+        [IO.File]::WriteAllText((Join-Path $evidence 'cmd-launch-error.txt'), $_.ToString(), $encoding)
+    }
     throw "Native QA token probe failed: exit $exitCode (0x$hexCode). Evidence: $evidence"
 }
 $measured = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
