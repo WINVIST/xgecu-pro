@@ -33,6 +33,9 @@ application launches do not enable that test port or change runtime settings.
 An elevated CI caller delegates only its QA branch to a restricted token for
 the same user. The child checks Medium Integrity and non-elevated status before
 launching the app and drivers; token measurements and output remain in evidence.
+The elevated launcher temporarily adds same-user access to its window station
+and desktop and restores their DACLs after the child exits. A separate early
+probe checks this delegation before compilation, preserving launch failures.
 Only successful checks for the final revision are release evidence. The
 [pull request checks](https://github.com/WINVIST/xgecu-pro/pull/4/checks) show
 the current revision and all three platform gates; the release itself is

@@ -36,6 +36,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check the Windows native QA user token
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 2
+        run: ./scripts/check-windows-native-token.ps1
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'

@@ -195,6 +195,10 @@ WebDriver and `tauri-driver` on PATH.
 When called from an elevated CI process, the script delegates its QA branch
 to a restricted Medium Integrity token for the same user and records the
 measured privilege level. It does not change system policies or user accounts.
+On elevated runners, it temporarily grants that user access to the caller's
+window station and desktop, then restores their DACLs when the child exits.
+`./scripts/check-windows-native-token.ps1` checks this launch before CI builds
+the application, retaining both caller and child token measurements.
 `node scripts/check-large-buffer.mjs` explicitly runs the 1.14 GiB and 2 GiB
 test and checks Linux engine peak RSS below 128 MiB, excluding compilation.
 

@@ -6,6 +6,7 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
@@ -77,8 +78,177 @@ namespace Xgecu.Qa
             string directory, ref StartupInfoEx startup, out ProcessInformation process);
         [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(NativeHandle handle, uint milliseconds);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(NativeHandle handle, out uint code);
+        [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll", SetLastError = true)] static extern IntPtr GetProcessWindowStation();
+        [DllImport("user32.dll", SetLastError = true)] static extern IntPtr GetThreadDesktop(uint thread);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern bool GetUserObjectInformationW(IntPtr handle, int index, StringBuilder value, uint size, out uint needed);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr OpenWindowStationW(string name, bool inherit, uint access);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr OpenDesktopW(string name, uint flags, bool inherit, uint access);
+        [DllImport("user32.dll", SetLastError = true)] static extern bool CloseWindowStation(IntPtr handle);
+        [DllImport("user32.dll", SetLastError = true)] static extern bool CloseDesktop(IntPtr handle);
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool GetUserObjectSecurity(IntPtr handle, ref uint information, [Out] byte[] descriptor, uint size, out uint needed);
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool SetUserObjectSecurity(IntPtr handle, ref uint information, [In] byte[] descriptor);
 
         static Win32Exception Error(string operation) { return new Win32Exception(Marshal.GetLastWin32Error(), operation); }
+
+        static string UserObjectName(IntPtr handle)
+        {
+            if (handle == IntPtr.Zero) throw Error("Get current USER object");
+            uint needed;
+            GetUserObjectInformationW(handle, 2, null, 0, out needed); // UOI_NAME
+            if (needed == 0) throw Error("GetUserObjectInformationW(name size)");
+            var name = new StringBuilder(checked((int)needed / 2));
+            if (!GetUserObjectInformationW(handle, 2, name, needed, out needed)) throw Error("GetUserObjectInformationW(name)");
+            return name.ToString();
+        }
+
+        public static string CurrentDesktop()
+        {
+            // These two handles are borrowed, and must not be closed here.
+            return UserObjectName(GetProcessWindowStation()) + "\\" + UserObjectName(GetThreadDesktop(GetCurrentThreadId()));
+        }
+
+        // Restricted LUA tokens deny the Administrators SID. On hosted runners
+        // with UAC disabled, WinSta/desktop DACLs may grant only that group GUI
+        // access, causing user32 DLL initialization to fail before pwsh starts.
+        // https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-setuserobjectsecurity
+        // https://learn.microsoft.com/windows/win32/winstation/window-station-security-and-access-rights
+        // https://learn.microsoft.com/windows/win32/winstation/desktop-security-and-access-rights
+        sealed class DesktopAccess : IDisposable
+        {
+            sealed class Grant
+            {
+                public IntPtr Handle;
+                public byte[] Original, Applied, Ace;
+                public int OriginalMatches;
+            }
+            IntPtr station, desktop;
+            Grant stationGrant, desktopGrant;
+            public string Path { get; private set; }
+
+            static byte[] Read(IntPtr handle)
+            {
+                uint information = 4, needed; // DACL only; never change owner/SACL.
+                GetUserObjectSecurity(handle, ref information, null, 0, out needed);
+                if (needed == 0) throw Error("GetUserObjectSecurity(size)");
+                var descriptor = new byte[needed];
+                if (!GetUserObjectSecurity(handle, ref information, descriptor, needed, out needed)) throw Error("GetUserObjectSecurity(DACL)");
+                return descriptor;
+            }
+            static void Write(IntPtr handle, byte[] descriptor)
+            {
+                uint information = 4;
+                if (!SetUserObjectSecurity(handle, ref information, descriptor)) throw Error("SetUserObjectSecurity(DACL)");
+            }
+            static byte[] Binary(GenericSecurityDescriptor value)
+            {
+                var bytes = new byte[value.BinaryLength]; value.GetBinaryForm(bytes, 0); return bytes;
+            }
+            static byte[] AceBinary(GenericAce value)
+            {
+                var bytes = new byte[value.BinaryLength]; value.GetBinaryForm(bytes, 0); return bytes;
+            }
+            static bool Equal(byte[] left, byte[] right)
+            {
+                if (left == null || right == null) return left == right;
+                if (left.Length != right.Length) return false;
+                for (int i = 0; i < left.Length; i++) if (left[i] != right[i]) return false;
+                return true;
+            }
+            static byte[] AclBinary(byte[] descriptor)
+            {
+                var acl = new RawSecurityDescriptor(descriptor, 0).DiscretionaryAcl;
+                if (acl == null) return null;
+                var bytes = new byte[acl.BinaryLength]; acl.GetBinaryForm(bytes, 0); return bytes;
+            }
+            static int Matches(RawAcl acl, byte[] ace)
+            {
+                int count = 0;
+                if (acl != null) for (int i = 0; i < acl.Count; i++) if (Equal(AceBinary(acl[i]), ace)) count++;
+                return count;
+            }
+            static Grant Add(IntPtr handle, SecurityIdentifier user, int rights)
+            {
+                var original = Read(handle);
+                var descriptor = new RawSecurityDescriptor(original, 0);
+                if (descriptor.DiscretionaryAcl == null) return null; // NULL DACL already allows access.
+                var ace = new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, rights, user, false, null);
+                var added = AceBinary(ace);
+                int matches = Matches(descriptor.DiscretionaryAcl, added);
+                int position = 0;
+                while (position < descriptor.DiscretionaryAcl.Count &&
+                    (descriptor.DiscretionaryAcl[position].AceFlags & AceFlags.Inherited) == 0) position++;
+                descriptor.DiscretionaryAcl.InsertAce(position, ace);
+                var grant = new Grant { Handle = handle, Original = original, Applied = Binary(descriptor), Ace = added, OriginalMatches = matches };
+                Write(handle, grant.Applied);
+                return grant;
+            }
+            static void Restore(Grant grant)
+            {
+                if (grant == null) return;
+                var current = Read(grant.Handle);
+                if (Equal(AclBinary(current), AclBinary(grant.Applied))) {
+                    Write(grant.Handle, grant.Original);
+                    if (!Equal(AclBinary(Read(grant.Handle)), AclBinary(grant.Original)))
+                        throw new InvalidOperationException("The original GUI-object DACL was not restored.");
+                } else {
+                    // Preserve unrelated concurrent changes; remove only our
+                    // additional matching ACE, never a pre-existing entry.
+                    var descriptor = new RawSecurityDescriptor(current, 0);
+                    var acl = descriptor.DiscretionaryAcl;
+                    if (Matches(acl, grant.Ace) <= grant.OriginalMatches) return;
+                    for (int i = acl.Count - 1; i >= 0; i--) if (Equal(AceBinary(acl[i]), grant.Ace)) {
+                        acl.RemoveAce(i); Write(grant.Handle, Binary(descriptor)); break;
+                    }
+                }
+            }
+
+            public static DesktopAccess ForElevatedCaller()
+            {
+                if (CurrentIntegrity() < 0x3000 && !CurrentElevated()) return null;
+                var scope = new DesktopAccess();
+                try
+                {
+                    string stationName = UserObjectName(GetProcessWindowStation());
+                    string desktopName = UserObjectName(GetThreadDesktop(GetCurrentThreadId()));
+                    scope.Path = stationName + "\\" + desktopName;
+                    // Only these owned handles have WRITE_DAC. The child gets
+                    // GUI interaction + READ_CONTROL, not ACL/owner/delete rights.
+                    scope.station = OpenWindowStationW(stationName, false, 0x00060002);
+                    if (scope.station == IntPtr.Zero) throw Error("OpenWindowStationW(READ_CONTROL | WRITE_DAC)");
+                    scope.desktop = OpenDesktopW(desktopName, 0, false, 0x00060081);
+                    if (scope.desktop == IntPtr.Zero) throw Error("OpenDesktopW(READ_CONTROL | WRITE_DAC)");
+                    var user = new SecurityIdentifier(CurrentUserSid());
+                    scope.stationGrant = Add(scope.station, user, 0x0002037f);
+                    scope.desktopGrant = Add(scope.desktop, user, 0x000201ff);
+                    Console.WriteLine("[windows-native] Temporary same-user GUI access: " + scope.Path);
+                    return scope;
+                }
+                catch { scope.Dispose(); throw; }
+            }
+
+            public void Dispose()
+            {
+                Exception failure = null;
+                try { Restore(desktopGrant); } catch (Exception e) { failure = e; } finally { desktopGrant = null; }
+                try { Restore(stationGrant); } catch (Exception e) { failure = failure == null ? e : new AggregateException(failure, e); } finally { stationGrant = null; }
+                if (desktop != IntPtr.Zero) {
+                    if (!CloseDesktop(desktop)) failure = failure ?? Error("CloseDesktop");
+                    desktop = IntPtr.Zero;
+                }
+                if (station != IntPtr.Zero) {
+                    if (!CloseWindowStation(station)) failure = failure ?? Error("CloseWindowStation");
+                    station = IntPtr.Zero;
+                }
+                if (failure != null) throw failure;
+                if (Path != null) Console.WriteLine("[windows-native] Same-user GUI DACL access restored: " + Path);
+            }
+        }
         static NativeHandle CurrentToken(uint access)
         {
             NativeHandle token;
@@ -182,6 +352,7 @@ namespace Xgecu.Qa
             // Restricted versions of our own token are exempt from the
             // SeAssignPrimaryToken requirement. CreateProcessAsUser temporarily
             // enables SeIncreaseQuota if held; missing rights fail explicitly.
+            using (var desktopAccess = DesktopAccess.ForElevatedCaller())
             using (var original = CurrentToken(TokenAccess))
             {
                 NativeHandle restricted;
@@ -216,6 +387,7 @@ namespace Xgecu.Qa
                                 attributes = attributes,
                                 startup = new StartupInfo {
                                     cb = (uint)Marshal.SizeOf<StartupInfoEx>(), flags = 0x100 | 0x1, showWindow = 0,
+                                    desktop = desktopAccess == null ? null : desktopAccess.Path,
                                     stdin = input.DangerousGetHandle(), stdout = output.DangerousGetHandle(), stderr = error.DangerousGetHandle()
                                 }
                             };
