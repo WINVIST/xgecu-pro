@@ -1558,7 +1558,7 @@ fn prepare_image_file(
 /// Keep the prior dump intact if writing the replacement fails or the process
 /// stops before it is complete. A same-directory temporary file also prevents
 /// following a symlink at the selected output path.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn write_output_atomically(output: &Path, bytes: &[u8]) -> Result<()> {
     let parent = output
         .parent()

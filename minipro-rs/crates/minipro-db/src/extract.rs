@@ -6,16 +6,17 @@
 //!
 //! The vendor ships the chip database as `xgpro_T76_V*.rar` → a WinRAR SFX
 //! executable → `InfoICT76.dll` + `algoT76/*.alg`, so getting at it needs a
-//! RAR5 decoder. Rather than linking one — the usable implementations are
-//! either non-MIT (unrar) or C (libarchive), and bundling either would change
-//! the licence of every binary — this drives an extractor that is already
-//! installed. That keeps the shipped artifact pure-Rust and MIT.
+//! RAR5 decoder. Decoding is delegated to an external extractor rather than
+//! linking a decoder into the Rust database parser. System packages provide
+//! the extractor on macOS, Windows and Debian; the desktop AppImage packages
+//! bsdtar and its supporting libraries with their license notices.
 //!
 //! Tools are probed in order of how well they are known to work here:
 //!
 //! | Tool | Notes |
 //! |---|---|
 //! | `bsdtar` | libarchive's RAR5 reader; **ships with macOS**, `libarchive-tools` on Debian |
+//! | Windows `tar.exe` | Windows 11's system libarchive build |
 //! | `unar` | The Unarchiver / XADMaster |
 //! | `unrar` | RARLAB's own extractor |
 //!
@@ -70,6 +71,8 @@ pub fn archive_kind(path: &Path) -> Option<&'static str> {
 pub enum Extractor {
     /// `bsdtar -xf <archive>` (libarchive).
     BsdTar,
+    /// The libarchive `tar.exe` shipped in the Windows system directory.
+    WindowsTar,
     /// `unar -q -f -o <dir> <archive>`.
     Unar,
     /// `unrar x -y <archive> <dir>/`.
@@ -80,6 +83,7 @@ impl Extractor {
     pub fn program(self) -> &'static str {
         match self {
             Extractor::BsdTar => "bsdtar",
+            Extractor::WindowsTar => "tar.exe",
             Extractor::Unar => "unar",
             Extractor::Unrar => "unrar",
         }
@@ -89,14 +93,75 @@ impl Extractor {
     /// `unar` has no member selection, so it always unpacks everything and
     /// relies on [`prune`] afterwards.
     fn supports_members(self) -> bool {
-        matches!(self, Extractor::BsdTar | Extractor::Unrar)
+        matches!(
+            self,
+            Extractor::BsdTar | Extractor::WindowsTar | Extractor::Unrar
+        )
+    }
+
+    fn executable(self) -> PathBuf {
+        #[cfg(windows)]
+        if self == Extractor::BsdTar {
+            // GUI-side imports do not inherit the helper runner's PATH.
+            // Anchor both installed processes to their own bundle instead.
+            if let Ok(executable) = std::env::current_exe() {
+                if let Some(bundled) = windows_bundled_bsdtar(&executable) {
+                    return bundled;
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if self == Extractor::BsdTar {
+            if let Some(appdir) = std::env::var_os("APPDIR").filter(|p| !p.is_empty()) {
+                let bundled = PathBuf::from(appdir).join("usr/bin/bsdtar");
+                if bundled.is_file() {
+                    return bundled;
+                }
+            }
+        }
+        if self == Extractor::WindowsTar {
+            // Do not accidentally select GNU tar or a tar.exe in the cwd.
+            return std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+                .join("System32")
+                .join("tar.exe");
+        }
+        PathBuf::from(self.program())
+    }
+
+    fn command(self) -> Command {
+        let mut command = Command::new(self.executable());
+        hide_console(&mut command);
+        // Vendor archives contain UTF-8 names even for members we do not select.
+        // The C locale makes libarchive reject those headers. C.UTF-8 is
+        // available on the supported glibc Linux baselines; override only this
+        // child process, without changing the app's or caller's locale.
+        #[cfg(target_os = "linux")]
+        command.env("LC_ALL", "C.UTF-8");
+        #[cfg(target_os = "linux")]
+        if self == Extractor::BsdTar {
+            if let Some(appdir) = std::env::var_os("APPDIR").filter(|p| !p.is_empty()) {
+                let libraries = PathBuf::from(appdir).join("usr/lib/xgecu-extract");
+                if libraries.is_dir() {
+                    let mut paths = vec![libraries];
+                    if let Some(previous) = std::env::var_os("LD_LIBRARY_PATH") {
+                        paths.extend(std::env::split_paths(&previous));
+                    }
+                    if let Ok(paths) = std::env::join_paths(paths) {
+                        command.env("LD_LIBRARY_PATH", paths);
+                    }
+                }
+            }
+        }
+        command
     }
 
     /// Extract `archive` into `dest` (which must exist), optionally limited to
     /// `members`. Selecting members matters: the installer carries ~150 MB of
     /// drivers, language packs and GUI we never read.
     fn run(self, archive: &Path, dest: &Path, members: &[&str]) -> Result<()> {
-        let mut cmd = Command::new(self.program());
+        let mut cmd = self.command();
         let members = if self.supports_members() {
             members
         } else {
@@ -106,6 +171,17 @@ impl Extractor {
             // bsdtar has no output-directory flag; it extracts into the cwd.
             Extractor::BsdTar => {
                 cmd.arg("-xf").arg(archive).args(members).current_dir(dest);
+            }
+            Extractor::WindowsTar => {
+                // Windows' libarchive build reads argv through the ANSI code
+                // page. Open the Unicode archive path ourselves and use the
+                // wide-character process cwd for its destination. Inherit a
+                // seekable file handle, not a pipe: RAR/SFX readers may seek.
+                let input = std::fs::File::open(archive)?;
+                cmd.args(["-xf", "-"])
+                    .args(members)
+                    .stdin(Stdio::from(input))
+                    .current_dir(dest);
             }
             Extractor::Unar => {
                 cmd.args(["-q", "-f", "-o"]).arg(dest).arg(archive);
@@ -160,13 +236,24 @@ impl Extractor {
     }
 }
 
+#[cfg(any(windows, test))]
+fn windows_bundled_bsdtar(executable: &Path) -> Option<PathBuf> {
+    let directory = executable.parent()?;
+    ["resources/tools/bsdtar.exe", "tools/bsdtar.exe"]
+        .into_iter()
+        .map(|relative| directory.join(relative))
+        .find(|candidate| candidate.is_file())
+}
+
 fn extracted_tree_exceeds_limit(root: &Path) -> Result<bool> {
     const MAX_BYTES: u64 = 1 << 30;
     const MAX_ENTRIES: u64 = 20_000;
     let mut bytes = 0u64;
     let mut entries = 0u64;
+    checked_directory(root, root)?;
     let mut pending = vec![root.to_path_buf()];
     while let Some(dir) = pending.pop() {
+        checked_directory(root, &dir)?;
         for item in std::fs::read_dir(dir)? {
             let item = item?;
             entries += 1;
@@ -174,6 +261,10 @@ fn extracted_tree_exceeds_limit(root: &Path) -> Result<bool> {
                 return Ok(true);
             }
             let meta = std::fs::symlink_metadata(item.path())?;
+            if is_link(&meta) || (!meta.is_dir() && !meta.is_file()) {
+                return Err(unsafe_extraction_entry());
+            }
+            checked_containment(root, &item.path())?;
             if meta.is_dir() {
                 pending.push(item.path());
             } else if meta.is_file() {
@@ -187,22 +278,93 @@ fn extracted_tree_exceeds_limit(root: &Path) -> Result<bool> {
     Ok(false)
 }
 
+fn unsafe_extraction_entry() -> Error {
+    Error::Format("the extracted database must contain only real directories and regular files inside its extraction directory; links and special files are not allowed".into())
+}
+
+fn is_link(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // Includes junctions and other reparse points, not only file symlinks.
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    metadata.file_type().is_symlink()
+}
+
+fn checked_containment(root: &Path, path: &Path) -> Result<()> {
+    let canonical_root = std::fs::canonicalize(root)?;
+    let canonical_path = std::fs::canonicalize(path)?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(unsafe_extraction_entry());
+    }
+    Ok(())
+}
+
+fn checked_directory(root: &Path, directory: &Path) -> Result<()> {
+    for path in [root, directory] {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if is_link(&metadata) || !metadata.is_dir() {
+            return Err(unsafe_extraction_entry());
+        }
+    }
+    checked_containment(root, directory)
+}
+
+/// Validate before searching or pruning, even when an extractor has already
+/// exited successfully. No candidate finder may follow a link out of storage.
+fn validate_extracted_tree(root: &Path) -> Result<()> {
+    if extracted_tree_exceeds_limit(root)? {
+        return Err(Error::Format(
+            "extracted database exceeds the 1 GiB/20,000-file limit".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// The first usable extractor on this system, if any.
 pub fn find() -> Option<Extractor> {
-    [Extractor::BsdTar, Extractor::Unar, Extractor::Unrar]
-        .into_iter()
-        .find(|e| probe(e.program()))
+    candidates(cfg!(windows)).into_iter().find(|e| probe(*e))
+}
+
+fn candidates(windows: bool) -> Vec<Extractor> {
+    let mut tools = vec![Extractor::BsdTar, Extractor::Unar, Extractor::Unrar];
+    if windows {
+        // The desktop app supplies a UTF-8-capable bsdtar. System tar remains
+        // a fallback, but some builds reject non-ANSI names in vendor SFXs.
+        tools.insert(1, Extractor::WindowsTar);
+    }
+    tools
+}
+
+fn hide_console(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    #[cfg(not(windows))]
+    let _ = command;
 }
 
 /// Is `program` present and runnable? Probed by execution rather than a PATH
 /// search, so a shadowed or non-executable entry does not count as available.
-fn probe(program: &str) -> bool {
+fn probe(tool: Extractor) -> bool {
     // `unar` has no --version; every candidate accepts being run bare and
     // exits, which is enough to prove it exists and starts.
-    Command::new(program)
+    let mut command = tool.command();
+    command
         .arg("--version")
         .output()
-        .map(|o| o.status.success() || !o.stdout.is_empty() || !o.stderr.is_empty())
+        .map(|o| {
+            if tool == Extractor::WindowsTar {
+                let version = String::from_utf8_lossy(&o.stdout).to_ascii_lowercase();
+                return o.status.success()
+                    && (version.contains("bsdtar") || version.contains("libarchive"));
+            }
+            o.status.success() || !o.stdout.is_empty() || !o.stderr.is_empty()
+        })
         .unwrap_or(false)
 }
 
@@ -212,14 +374,15 @@ pub fn install_hint() -> String {
     let install = if cfg!(target_os = "macos") {
         "  brew install unar          (bsdtar normally ships with macOS already)"
     } else if cfg!(target_os = "windows") {
-        "  winget install RARLab.WinRAR   — or install 7-Zip and extract by hand"
+        "  Windows 11 normally includes tar.exe (libarchive) in System32.\n  \
+         Restore the system tar.exe or install RARLab.WinRAR with winget."
     } else {
         "  apt install libarchive-tools   (bsdtar)\n  \
          dnf install bsdtar             — or `apt install unar`"
     };
     format!(
         "no RAR-capable extractor found. The chip database ships inside XGecu's\n\
-         installer archive, which needs one of: bsdtar, unar, unrar.\n\n\
+         installer archive, which needs one of: bsdtar, Windows tar.exe, unar, unrar.\n\n\
          Install one:\n{install}\n\n\
          Note: 7-Zip cannot be used — it lists the archive but writes zero-byte\n\
          files, which looks like success.\n\n\
@@ -238,15 +401,17 @@ pub fn install_hint() -> String {
 pub fn unpack_vendor_archive(archive: &Path, dest: &Path) -> Result<PathBuf> {
     let tool = find().ok_or_else(|| Error::Format(install_hint()))?;
     std::fs::create_dir_all(dest)?;
+    // A caller's pre-existing destination must not redirect extraction either.
+    validate_extracted_tree(dest)?;
     // The outer archive holds only the installer, so nothing to select there.
     tool.run(archive, dest, &[])?;
 
-    if let Some(dir) = find_database_dir(dest) {
-        prune(&dir);
+    if let Some(dir) = find_database_dir(dest)? {
+        prune(dest, &dir)?;
         return Ok(dir);
     }
     // Outer layer only yielded the installer; unpack that as well.
-    let inner = find_installer_exe(dest).ok_or_else(|| {
+    let inner = find_installer_exe(dest)?.ok_or_else(|| {
         Error::Format(format!(
             "{} unpacked {} but produced neither InfoICT76.dll nor an installer .exe",
             tool.program(),
@@ -256,7 +421,7 @@ pub fn unpack_vendor_archive(archive: &Path, dest: &Path) -> Result<PathBuf> {
     // Inner layer: take only the database, not the whole vendor install.
     tool.run(&inner, dest, &["InfoICT76.dll", "algoT76"])?;
     let _ = std::fs::remove_file(&inner); // the 65 MB installer has served its purpose
-    let dir = find_database_dir(dest).ok_or_else(|| {
+    let dir = find_database_dir(dest)?.ok_or_else(|| {
         Error::Format(format!(
             "unpacked {} but found no InfoICT76.dll — if you used 7-Zip earlier, \
              its zero-byte output may be cached; clear {} and retry",
@@ -264,7 +429,7 @@ pub fn unpack_vendor_archive(archive: &Path, dest: &Path) -> Result<PathBuf> {
             dest.display()
         ))
     })?;
-    prune(&dir);
+    prune(dest, &dir)?;
     Ok(dir)
 }
 
@@ -279,11 +444,13 @@ const KEEP: &[&str] = &[
     "logicic.xml",
 ];
 
-/// Drop everything in `dir` that the database does not use. Best-effort: a
-/// failure to prune is not a failure to load, so errors are ignored.
-fn prune(dir: &Path) {
+/// Drop unused files only after checking the entire extraction tree and the
+/// selected directory. Ordinary cleanup failures remain best-effort.
+fn prune(root: &Path, dir: &Path) -> Result<()> {
+    validate_extracted_tree(root)?;
+    checked_directory(root, dir)?;
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+        return Ok(());
     };
     for entry in entries.filter_map(|e| e.ok()) {
         let keep = entry
@@ -294,59 +461,184 @@ fn prune(dir: &Path) {
             continue;
         }
         let path = entry.path();
-        let _ = if path.is_dir() {
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if is_link(&metadata) || (!metadata.is_file() && !metadata.is_dir()) {
+            return Err(unsafe_extraction_entry());
+        }
+        checked_containment(root, &path)?;
+        let _ = if metadata.is_dir() {
             std::fs::remove_dir_all(&path)
         } else {
             std::fs::remove_file(&path)
         };
     }
+    Ok(())
 }
 
 /// Directory containing a *non-empty* `InfoICT76.dll`, searched one level deep.
 /// The size check is what catches 7-Zip's zero-byte output.
-fn find_database_dir(root: &Path) -> Option<PathBuf> {
+fn find_database_dir(root: &Path) -> Result<Option<PathBuf>> {
+    validate_extracted_tree(root)?;
     let usable = |dir: &Path| {
-        std::fs::metadata(dir.join("InfoICT76.dll"))
-            .map(|m| m.is_file() && m.len() > 0)
+        std::fs::symlink_metadata(dir.join("InfoICT76.dll"))
+            .map(|m| !is_link(&m) && m.is_file() && m.len() > 0)
             .unwrap_or(false)
     };
     if usable(root) {
-        return Some(root.to_path_buf());
+        return Ok(Some(root.to_path_buf()));
     }
-    std::fs::read_dir(root)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .find(|p| usable(p))
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if is_link(&metadata) {
+            return Err(unsafe_extraction_entry());
+        }
+        if metadata.is_dir() {
+            checked_directory(root, &path)?;
+            if usable(&path) {
+                return Ok(Some(path));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// The nested installer executable, searched one level deep.
-fn find_installer_exe(root: &Path) -> Option<PathBuf> {
+fn find_installer_exe(root: &Path) -> Result<Option<PathBuf>> {
+    validate_extracted_tree(root)?;
     fn exe(p: &Path) -> bool {
-        p.is_file()
-            && p.extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
     }
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).ok()?.filter_map(|e| e.ok()) {
+        checked_directory(root, &dir)?;
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
             let p = entry.path();
-            if exe(&p) {
-                return Some(p);
+            let metadata = std::fs::symlink_metadata(&p)?;
+            if is_link(&metadata) || (!metadata.is_file() && !metadata.is_dir()) {
+                return Err(unsafe_extraction_entry());
             }
-            if p.is_dir() && dir == root {
+            checked_containment(root, &p)?;
+            if metadata.is_file() && exe(&p) {
+                return Ok(Some(p));
+            }
+            if metadata.is_dir() && dir == root {
                 stack.push(p);
             }
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_bundle_lookup_anchors_both_gui_and_helper_without_searching_outside() {
+        let root = tempfile::tempdir().unwrap();
+        let installed = root.path().join("installed app База");
+        let unrelated = root.path().join("unrelated PATH directory");
+        std::fs::create_dir_all(&installed).unwrap();
+        std::fs::create_dir_all(&unrelated).unwrap();
+        std::fs::write(unrelated.join("bsdtar.exe"), b"external tool").unwrap();
+        let executables = [
+            installed.join("XGecuPro.exe"),
+            installed.join("minipro.exe"),
+        ];
+        for executable in &executables {
+            assert_eq!(windows_bundled_bsdtar(executable), None);
+        }
+        let bundled = installed.join("resources/tools/bsdtar.exe");
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"bundled tool").unwrap();
+        for executable in &executables {
+            assert_eq!(windows_bundled_bsdtar(executable), Some(bundled.clone()));
+        }
+    }
+
+    #[test]
+    fn windows_bundle_lookup_accepts_both_layouts_and_prefers_resources() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("XGecuPro.exe");
+        let tools = root.path().join("tools/bsdtar.exe");
+        let resources = root.path().join("resources/tools/bsdtar.exe");
+        std::fs::create_dir_all(tools.parent().unwrap()).unwrap();
+        std::fs::write(&tools, b"tools layout").unwrap();
+        // A directory with the filename of an executable must not shadow it.
+        std::fs::create_dir_all(&resources).unwrap();
+        assert_eq!(windows_bundled_bsdtar(&executable), Some(tools.clone()));
+        std::fs::remove_dir(&resources).unwrap();
+        std::fs::write(&resources, b"resources layout").unwrap();
+        assert_eq!(windows_bundled_bsdtar(&executable), Some(resources));
+    }
+
+    #[test]
+    fn windows_prefers_utf8_bsdtar_then_system_tar_before_optional_tools() {
+        assert_eq!(
+            candidates(true),
+            vec![
+                Extractor::BsdTar,
+                Extractor::WindowsTar,
+                Extractor::Unar,
+                Extractor::Unrar
+            ]
+        );
+        assert!(!candidates(false).contains(&Extractor::WindowsTar));
+        assert!(Extractor::WindowsTar.supports_members());
+        assert_eq!(Extractor::WindowsTar.program(), "tar.exe");
+        let path = Extractor::WindowsTar.executable();
+        assert_eq!(path.file_name().and_then(|s| s.to_str()), Some("tar.exe"));
+        assert_eq!(
+            path.parent()
+                .and_then(Path::file_name)
+                .and_then(|s| s.to_str()),
+            Some("System32")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn system_windows_tar_extracts_selected_members_with_unicode_paths() {
+        let tool = Extractor::WindowsTar;
+        assert!(
+            probe(tool),
+            "supported Windows installations must provide system libarchive tar.exe"
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source with spaces База");
+        let destination = directory.path().join("destination with spaces База");
+        std::fs::create_dir_all(source.join("algoT76")).unwrap();
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::write(source.join("InfoICT76.dll"), b"test catalog").unwrap();
+        std::fs::write(source.join("algoT76/test.alg"), b"test algorithm").unwrap();
+        std::fs::write(source.join("unneeded.txt"), b"not selected").unwrap();
+        let archive = directory.path().join("archive with spaces База.tar");
+        let status = tool
+            .command()
+            .args(["-cf", "-"])
+            .stdout(std::fs::File::create(&archive).unwrap())
+            .current_dir(&source)
+            .args(["InfoICT76.dll", "algoT76", "unneeded.txt"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        tool.run(&archive, &destination, &["InfoICT76.dll", "algoT76"])
+            .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("InfoICT76.dll")).unwrap(),
+            b"test catalog"
+        );
+        assert_eq!(
+            std::fs::read(destination.join("algoT76/test.alg")).unwrap(),
+            b"test algorithm"
+        );
+        assert!(!destination.join("unneeded.txt").exists());
+    }
 
     #[test]
     fn archive_detection_reads_content_not_extension() {
@@ -398,7 +690,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("InfoICT76.dll"), b"").unwrap();
         assert!(
-            find_database_dir(dir.path()).is_none(),
+            find_database_dir(dir.path()).unwrap().is_none(),
             "an empty DLL is 7-Zip's failure mode and must not count"
         );
     }
@@ -410,7 +702,7 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
         std::fs::write(sub.join("InfoICT76.dll"), b"x").unwrap();
         assert_eq!(
-            find_database_dir(dir.path()).as_deref(),
+            find_database_dir(dir.path()).unwrap().as_deref(),
             Some(sub.as_path())
         );
     }
@@ -423,6 +715,190 @@ mod tests {
         let large = std::fs::File::create(dir.path().join("large")).unwrap();
         large.set_len((1u64 << 30) + 1).unwrap();
         assert!(extracted_tree_exceeds_limit(dir.path()).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_extractor_reads_utf8_archive_with_c_locale_parent() {
+        const CHILD_MARKER: &str = "XGECU_TEST_C_LOCALE_EXTRACT_CHILD";
+        if std::env::var_os(CHILD_MARKER).is_none() {
+            // Isolate the inherited locale from the other parallel tests.
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "extract::tests::linux_extractor_reads_utf8_archive_with_c_locale_parent",
+                    "--nocapture",
+                ])
+                .env(CHILD_MARKER, "1")
+                .env("LC_ALL", "C")
+                .env_remove("LANG")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "C-locale extraction regression failed:\n{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        assert_eq!(std::env::var("LC_ALL").unwrap(), "C");
+        assert!(std::env::var_os("LANG").is_none());
+        let tool = Extractor::BsdTar;
+        assert!(
+            probe(tool),
+            "Linux extraction tests require libarchive-tools"
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source");
+        let destination = directory.path().join("selected");
+        let complete = directory.path().join("complete");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::create_dir_all(&complete).unwrap();
+        let catalog = b"catalog bytes\x00\xff";
+        let document = b"unselected vendor document";
+        std::fs::write(source.join("InfoICT76.dll"), catalog).unwrap();
+        std::fs::write(source.join("中文说明.pdf"), document).unwrap();
+        let archive = directory.path().join("unicode.tar");
+        // Prepare an explicitly UTF-8 fixture independently of the behavior
+        // under test, then use the production extraction path below.
+        let status = Command::new(tool.executable())
+            .env("LC_ALL", "C.UTF-8")
+            .args(["--format", "pax", "-cf"])
+            .arg(&archive)
+            .current_dir(&source)
+            .args(["InfoICT76.dll", "中文说明.pdf"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        tool.run(&archive, &destination, &["InfoICT76.dll"])
+            .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("InfoICT76.dll")).unwrap(),
+            catalog
+        );
+        assert!(!destination.join("中文说明.pdf").exists());
+        tool.run(&archive, &complete, &[]).unwrap();
+        assert_eq!(
+            std::fs::read(complete.join("InfoICT76.dll")).unwrap(),
+            catalog
+        );
+        assert_eq!(
+            std::fs::read(complete.join("中文说明.pdf")).unwrap(),
+            document
+        );
+        // The parent test process still retains the caller's original locale.
+        assert_eq!(std::env::var("LC_ALL").unwrap(), "C");
+    }
+
+    #[test]
+    fn normal_nested_database_layout_can_be_found_and_pruned() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("Xgpro_T76_V1321");
+        std::fs::create_dir_all(database.join("algoT76")).unwrap();
+        std::fs::create_dir_all(database.join("vendor-gui")).unwrap();
+        std::fs::write(database.join("InfoICT76.dll"), b"catalog").unwrap();
+        std::fs::write(database.join("algoT76/test.alg"), b"algorithm").unwrap();
+        std::fs::write(database.join("vendor-gui/unneeded.bin"), b"gui").unwrap();
+        std::fs::write(database.join("unneeded.txt"), b"extra").unwrap();
+        let found = find_database_dir(directory.path()).unwrap().unwrap();
+        assert_eq!(found, database);
+        prune(directory.path(), &found).unwrap();
+        assert_eq!(
+            std::fs::read(database.join("InfoICT76.dll")).unwrap(),
+            b"catalog"
+        );
+        assert_eq!(
+            std::fs::read(database.join("algoT76/test.alg")).unwrap(),
+            b"algorithm"
+        );
+        assert!(!database.join("unneeded.txt").exists());
+        assert!(!database.join("vendor-gui").exists());
+        validate_extracted_tree(directory.path()).unwrap();
+    }
+
+    #[test]
+    fn normal_nested_installer_layout_is_found_without_descending_further() {
+        let directory = tempfile::tempdir().unwrap();
+        let installer = directory.path().join("wrapper/installer.EXE");
+        std::fs::create_dir_all(installer.parent().unwrap()).unwrap();
+        std::fs::write(&installer, b"MZinstaller").unwrap();
+        assert_eq!(
+            find_installer_exe(directory.path()).unwrap(),
+            Some(installer)
+        );
+    }
+
+    #[test]
+    fn prune_rejects_an_outside_candidate_before_touching_its_contents() {
+        let extraction = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        std::fs::write(extraction.path().join("InfoICT76.dll"), b"local catalog").unwrap();
+        std::fs::write(external.path().join("InfoICT76.dll"), b"external catalog").unwrap();
+        let marker = external.path().join("keep-my-notes.txt");
+        std::fs::write(&marker, b"outside extraction storage").unwrap();
+        assert!(prune(extraction.path(), external.path()).is_err());
+        assert_eq!(
+            std::fs::read(marker).unwrap(),
+            b"outside extraction storage"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malicious_extracted_directory_symlink_cannot_prune_external_files_or_change_modes() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let extraction = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let database = external.path().join("InfoICT76.dll");
+        let marker = external.path().join("keep-my-notes.txt");
+        std::fs::write(&database, b"external catalog").unwrap();
+        std::fs::write(&marker, b"outside extraction storage").unwrap();
+        std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let alias = extraction.path().join("Xgpro_T76_V1321");
+        symlink(external.path(), &alias).unwrap();
+
+        assert!(extracted_tree_exceeds_limit(extraction.path()).is_err());
+        assert!(find_database_dir(extraction.path()).is_err());
+        assert!(find_installer_exe(extraction.path()).is_err());
+        assert!(prune(extraction.path(), &alias).is_err());
+        // Even using the link itself as the apparent extraction root fails.
+        assert!(find_database_dir(&alias).is_err());
+        assert!(prune(&alias, &alias).is_err());
+
+        assert_eq!(std::fs::read(&database).unwrap(), b"external catalog");
+        assert_eq!(
+            std::fs::read(&marker).unwrap(),
+            b"outside extraction storage"
+        );
+        assert_eq!(
+            std::fs::metadata(database).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(marker).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extracted_database_file_links_and_special_files_are_rejected() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+        let extraction = tempfile::tempdir().unwrap();
+        let external = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(external.path(), b"external catalog").unwrap();
+        let link = extraction.path().join("InfoICT76.dll");
+        symlink(external.path(), &link).unwrap();
+        assert!(find_database_dir(extraction.path()).is_err());
+        assert!(prune(extraction.path(), extraction.path()).is_err());
+        assert_eq!(std::fs::read(external.path()).unwrap(), b"external catalog");
+        std::fs::remove_file(link).unwrap();
+        let _socket = UnixListener::bind(extraction.path().join("special.socket")).unwrap();
+        assert!(extracted_tree_exceeds_limit(extraction.path()).is_err());
+        assert!(find_database_dir(extraction.path()).is_err());
     }
 
     /// At least one extractor should exist in a normal dev environment; this is

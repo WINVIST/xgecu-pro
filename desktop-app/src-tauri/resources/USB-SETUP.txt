@@ -1,0 +1,18 @@
+XGecu Pro 1.2.0 beta - USB setup
+
+WINDOWS 11 x64
+The T76 interface must use Microsoft's WinUSB driver. XGecu Pro never replaces
+drivers. If the interface cannot open, close Xgpro and other programmer tools,
+check Device Manager, then follow desktop-app/README.md in the source release.
+Only select USB VID A466 / PID 1A86 when configuring WinUSB with Zadig.
+Changing this binding may affect the vendor Xgpro application. Record the
+original driver name first; use Device Manager to restore the vendor driver.
+
+LINUX x64
+DEB installs the narrowly scoped udev rule. After installation, reload rules
+with sudo udevadm control --reload-rules, then unplug/reconnect the programmer.
+For AppImage, install the included 70-xgecu-pro.rules into /etc/udev/rules.d/
+before reloading/reconnecting. Run the GUI as your regular desktop user.
+
+No programmer is connected in CI. Chip read/write/erase compatibility on
+Windows and Linux has not yet been confirmed with physical hardware.

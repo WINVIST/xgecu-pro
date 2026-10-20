@@ -1,0 +1,51 @@
+name: Verified release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    uses: ./.github/workflows/macos.yml
+  desktop:
+    uses: ./.github/workflows/desktop.yml
+  publish:
+    needs: [macos, desktop]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: XGecuPro-*-x64
+          path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: XGecuPro-macOS-arm64-unsigned
+          path: release-assets
+      - name: Verify all assets and publish once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          version="${GITHUB_REF_NAME#v}"
+          test "$version" = "$(node -p 'require("./desktop-app/package.json").version')"
+          notes="desktop-app/RELEASE-NOTES-$version.md"
+          test -s "$notes"
+          for name in XGecuPro-Windows-x64-setup.exe XGecuPro-Linux-x64.deb XGecuPro-Linux-x64.AppImage XGecuPro-macOS-arm64.zip XGecuPro-macOS-arm64.dmg; do
+            test -s "release-assets/$name"
+            (cd release-assets && sha256sum -c "$name.sha256")
+          done
+          flags=()
+          if [[ "$version" == *-* ]]; then flags+=(--prerelease --latest=false); fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "XGecu Pro $version" --notes-file "$notes" "${flags[@]}" release-assets/*

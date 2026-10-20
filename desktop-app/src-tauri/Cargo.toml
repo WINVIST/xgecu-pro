@@ -1,0 +1,42 @@
+[package]
+name = "xgecu-pro-desktop"
+version = "1.2.0-beta.1"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+description = "XGecu Pro desktop application for Windows and Linux"
+default-run = "XGecuPro"
+
+[lib]
+name = "xgecu_pro_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "XGecuPro"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+directories = "6"
+minipro-core = { path = "../../minipro-rs/crates/minipro-core" }
+minipro-db = { path = "../../minipro-rs/crates/minipro-db", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+nusb = "0.2.7"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true

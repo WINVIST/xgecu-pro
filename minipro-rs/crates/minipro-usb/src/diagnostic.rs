@@ -107,21 +107,44 @@ fn diagnose(profile: Profile, report: &mut Report) -> Result<()> {
     // or the exported report; this path performs no chip operation.
     let (device, link, serial) =
         open_device_handle(T76_VID, T76_PID, Select::Sole, &mut report.opening)?;
-    // EP0 and cached descriptors are available before interface 0. Keep this
-    // evidence even when IOKit has no interface object to claim.
-    match device.get_descriptor(15, 0, 0, SHORT_TIMEOUT).wait() {
-        Ok(bytes) => report.bos_hex = Some(bytes.iter().map(|b| format!("{b:02x}")).collect()),
-        Err(e) => report.notes.push(format!("BOS read unavailable: {e}")),
-    }
-    match opening::read_configuration(&device) {
-        Ok(value) => report.opening.device_configuration_before = Some(value),
-        Err(e) => report.opening.configuration_read_error = Some(e.to_string()),
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Linux/macOS expose EP0 before interface 0. Retain this evidence even
+        // when IOKit has no interface object to claim.
+        match device.get_descriptor(15, 0, 0, SHORT_TIMEOUT).wait() {
+            Ok(bytes) => report.bos_hex = Some(bytes.iter().map(|b| format!("{b:02x}")).collect()),
+            Err(e) => report.notes.push(format!("BOS read unavailable: {e}")),
+        }
+        match opening::read_configuration(&device) {
+            Ok(value) => report.opening.device_configuration_before = Some(value),
+            Err(e) => report.opening.configuration_read_error = Some(e.to_string()),
+        }
     }
     let interface = opening::claim(
         &device,
         may_configure_t76(T76_VID, T76_PID),
         &mut report.opening,
     )?;
+    #[cfg(target_os = "windows")]
+    {
+        // WinUSB needs the normal interface-0 claim for all control transfers.
+        // Do not call Device::get_descriptor here: nusb uses a hub IOCTL whose
+        // timeout is OS-defined. The claimed interface preserves the 5 s bound.
+        report.notes.push("Windows control requests use the already claimed WinUSB interface 0. Configuration and BOS are read after that claim; no extra claim or configuration selection is performed for diagnostics. Windows may reject standard power/descriptor requests; unavailable evidence is reported, never inferred.".into());
+        match opening::read_claimed_configuration(&interface) {
+            Ok(value) => {
+                report.opening.device_configuration_before = Some(value);
+                report.opening.configuration_read_error = None;
+            }
+            Err(e) => report.opening.configuration_read_error = Some(e.to_string()),
+        }
+        match interface.control_in(bos_request(), SHORT_TIMEOUT).wait() {
+            Ok(bytes) => report.bos_hex = Some(bytes.iter().map(|b| format!("{b:02x}")).collect()),
+            Err(e) => report
+                .notes
+                .push(format!("BOS read unavailable through WinUSB: {e}")),
+        }
+    }
     if report.opening.configuration_selection_reason
         == Some("get_configuration_stalled_no_host_interfaces")
     {
@@ -218,18 +241,8 @@ fn enabled_features(status: u16) -> impl Iterator<Item = u16> {
 impl DiagnosticTransport for UsbTransport {
     fn status(&self) -> Result<u16> {
         let bytes = self
-            .device
-            .control_in(
-                ControlIn {
-                    control_type: ControlType::Standard,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: 0,
-                    index: 0,
-                    length: 2,
-                },
-                SHORT_TIMEOUT,
-            )
+            .diagnostic_control_handle()?
+            .control_in(status_request(), SHORT_TIMEOUT)
             .wait()
             .map_err(|e| Error::Usb(format!("GET_STATUS(device): {e}")))?;
         match bytes.as_slice() {
@@ -242,24 +255,66 @@ impl DiagnosticTransport for UsbTransport {
     }
 
     fn feature(&self, request: u8, selector: u16) -> Result<()> {
-        self.device
-            .control_out(
-                ControlOut {
-                    control_type: ControlType::Standard,
-                    recipient: Recipient::Device,
-                    request,
-                    value: selector,
-                    index: 0,
-                    data: &[],
-                },
-                SHORT_TIMEOUT,
-            )
+        self.diagnostic_control_handle()?
+            .control_out(feature_request(request, selector), SHORT_TIMEOUT)
             .wait()
             .map_err(|e| {
                 Error::Usb(format!(
                     "device feature request {request} selector {selector}: {e}"
                 ))
             })
+    }
+}
+
+#[cfg(target_os = "windows")]
+type DiagnosticControlHandle = nusb::Interface;
+#[cfg(not(target_os = "windows"))]
+type DiagnosticControlHandle = nusb::Device;
+
+impl UsbTransport {
+    fn diagnostic_control_handle(&self) -> Result<&DiagnosticControlHandle> {
+        #[cfg(target_os = "windows")]
+        {
+            self.interface.as_ref().ok_or_else(no_interface)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(&self.device)
+        }
+    }
+}
+
+fn status_request() -> ControlIn {
+    ControlIn {
+        control_type: ControlType::Standard,
+        recipient: Recipient::Device,
+        request: 0,
+        value: 0,
+        index: 0,
+        length: 2,
+    }
+}
+
+fn feature_request(request: u8, selector: u16) -> ControlOut<'static> {
+    ControlOut {
+        control_type: ControlType::Standard,
+        recipient: Recipient::Device,
+        request,
+        value: selector,
+        index: 0,
+        data: &[],
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn bos_request() -> ControlIn {
+    ControlIn {
+        control_type: ControlType::Standard,
+        recipient: Recipient::Device,
+        request: 6,
+        value: 15 << 8,
+        index: 0,
+        length: 4096,
     }
 }
 
@@ -446,5 +501,40 @@ mod tests {
         assert_eq!(probes.len(), 1);
         assert!(probes[0].error.is_some());
         assert_eq!(tx.pos, 0);
+    }
+
+    #[test]
+    fn diagnostic_standard_requests_keep_device_recipient_and_bounded_lengths() {
+        for request in [status_request(), bos_request()] {
+            assert_eq!(request.control_type, ControlType::Standard);
+            assert_eq!(request.recipient, Recipient::Device);
+            assert_eq!(request.index, 0);
+        }
+        assert_eq!(
+            (
+                status_request().request,
+                status_request().value,
+                status_request().length
+            ),
+            (0, 0, 2)
+        );
+        assert_eq!(
+            (
+                bos_request().request,
+                bos_request().value,
+                bos_request().length
+            ),
+            (6, 15 << 8, 4096)
+        );
+        for (request, selector) in [(1, 48), (1, 49), (3, 48), (3, 49)] {
+            let setup = feature_request(request, selector);
+            assert_eq!(setup.control_type, ControlType::Standard);
+            assert_eq!(setup.recipient, Recipient::Device);
+            assert_eq!(
+                (setup.request, setup.value, setup.index),
+                (request, selector, 0)
+            );
+            assert!(setup.data.is_empty());
+        }
     }
 }

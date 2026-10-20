@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": ["deb", "appimage"],
+    "linux": {
+      "appimage": {
+        "files": {
+          "/usr/bin/bsdtar": "resources/extractor/bsdtar",
+          "/usr/lib/udev/rules.d/70-xgecu-pro.rules": "resources/70-xgecu-pro.rules",
+          "/usr/lib/xgecu-extract": "resources/extractor/lib",
+          "/usr/share/doc/xgecu-pro/extractor-notices": "resources/extractor/notices"
+        }
+      }
+    }
+  }
+}

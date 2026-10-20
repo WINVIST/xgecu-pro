@@ -1,12 +1,20 @@
 # XGecu Pro
 
-**A native macOS app and Rust command-line tools for XGecu chip programmers.**
+**A native macOS app, matching Windows/Linux desktop apps, and Rust command-line tools for XGecu chip programmers.**
 
 [Download for Apple Silicon](https://github.com/WINVIST/xgecu-pro/releases) ·
 [Install guide](mac-app/README.md) ·
 [Hardware results](mac-app/HARDWARE-VALIDATION.md) ·
 [Roadmap](mac-app/ROADMAP.md) ·
 [Security policy](SECURITY.md)
+
+Windows 11 x64 and Linux x64 are available in the
+[1.2.0-beta.1 preview](https://github.com/WINVIST/xgecu-pro/releases/tag/v1.2.0-beta.1):
+EXE installer, DEB and AppImage, with the same Program / Hex Editor / Activity
+workflow. See the [desktop install guide](desktop-app/README.md) and
+[verification record](desktop-app/VERIFICATION.md). Physical T76 chip operations
+on Windows and Linux remain unverified; the macOS hardware results below do not
+establish compatibility on the new platforms.
 
 The macOS app brings T76 connect, SOIC16 auto-detection, chip search, read,
 blank check, file comparison, programming with readback verification, and

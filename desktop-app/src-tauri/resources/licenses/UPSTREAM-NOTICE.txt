@@ -1,0 +1,50 @@
+NOTICE — attribution and upstream credits
+==========================================
+
+This repository is an independent reimplementation. The Rust code in
+`minipro-rs/` and the analysis in `docs/` build on prior open-source
+reverse-engineering of the XGecu T76 (and the T48/T56/TL866 family). That RE
+established the *facts* this project implements — USB opcodes, packet layouts,
+register/offset meanings, the T76's FPGA/bitstream operation sequence, and the
+`InfoICT76.dll` field/variant transforms. Facts and interfaces are not
+themselves copyrightable; the code here is original expression of them. The
+work below is what made this possible and deserves full credit.
+
+Matt Brown (nmatt0) — minipro `t76-improvements` fork
+-----------------------------------------------------
+    https://gitlab.com/nmatt0/minipro/-/tree/t76-improvements  (GPL-3.0)
+
+The reverse-engineering of the TL866II+/T48/T56/T76 USB protocols, the T76's
+FPGA/bitstream lifecycle, the firmware-update transport, and the `InfoICT76.dll`
+field/variant transforms is Matt Brown's work. This project's drivers
+(`minipro-rs/crates/minipro-proto/{tl866ii,t48,t56,t76}.rs`) and DLL parser
+(`minipro-rs/crates/minipro-db/src/dll.rs`) are independent Rust
+implementations of those reverse-engineered facts — not a translation of his
+C source, which is not vendored in this repository. That includes the
+TL866II+'s dual-endpoint payload distribution: the byte counts each endpoint
+must receive are a device requirement his tool's behavior documents, and this
+project restates the mapping from the observed values rather than transcribing
+his arithmetic.
+
+radiomanV — Xgecu_T76 — FPGA-side tooling
+-----------------------------------------
+    https://github.com/radiomanV/Xgecu_T76  (The Unlicense)
+
+FPGA bitstream / uploader tooling and hardware documentation for the T76's
+Anlogic FPGA + WCH CH569 MCU.
+
+XGecu / Xgpro
+-------------
+`InfoICT76.dll` and the `algoT76/*.alg` FPGA bitstreams are XGecu's proprietary
+data, redistributed by the community mirror at
+https://github.com/Kreeblah/XGecu_Software . They are not part of this project's
+source and are not covered by this project's license; the tooling here
+parses/consumes them at runtime but does not redistribute or claim ownership of
+them.
+
+License
+-------
+This project's own source is licensed **MIT** (see `LICENSE`). The MIT grant
+covers only the original code in this repository. It does not grant any rights
+to the third-party reverse-engineering credited above, nor to XGecu's
+proprietary data.
