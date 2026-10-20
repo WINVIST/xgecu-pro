@@ -22,8 +22,14 @@ the oldest supported baseline.
 
 Evidence artifacts are `XGecuPro-Windows-verification`,
 `XGecuPro-Linux-verification`, and the existing macOS UI/package artifacts.
-Linux CI uses Xvfb with software GL and WebKit compositing disabled for the
-headless display; installed packages do not set these test-only variables.
+Linux CI uses Xvfb, an Openbox window manager and a private D-Bus session with
+software GL and WebKit compositing disabled for the headless display;
+installed packages do not set these test-only variables. Package-candidate
+artifacts support native-test diagnostics and are excluded from publication.
+Windows QA starts the installed executable with a private WebView2 profile
+and a loopback debugging port, then attaches through Tauri WebDriver. This
+uses Microsoft's documented attach mode with the current runtime; normal
+application launches do not enable that test port or change runtime settings.
 Only successful checks for the final revision are release evidence. The
 [pull request checks](https://github.com/WINVIST/xgecu-pro/pull/4/checks) show
 the current revision and all three platform gates; the release itself is
@@ -45,6 +51,10 @@ after its Windows, Linux and macOS jobs succeed for the same tag.
   save, keyboard/dark/minimum-window/125% content scale, USB report export.
   This supplemental run used WSL's root test account; packaged Linux tests
   run as the hosted runner's regular user on Ubuntu 22.04.
+- A compiled Linux release app also passed all five scenarios with a fresh
+  cache, an unprivileged UID, Openbox and a private D-Bus/Xvfb session in WSL
+  Ubuntu 25.10. WebKit sandboxing remained enabled; all WebDriver screenshots
+  completed. This supplements, rather than replaces, the baseline package gates.
 - Offline cached lookup succeeded under a separate Linux network namespace;
   the empty-cache negative control failed with the expected network error.
 - The explicit release-profile large-image test passed both requested sizes

@@ -180,6 +180,14 @@ Native WebDriver tests (`npm run test:e2e`, with `tauri-driver` installed) run
 against the installed app. They supply only native file-picker results and
 exercise actual buffer I/O, helper execution, settings, keyboard interaction,
 themes and no-device diagnostics. They do not replace the USB transport.
+On a headless Linux host, use `bash scripts/run-linux-native.sh` as a regular
+user with Xvfb, Openbox, wmctrl, dbus-x11 and procps installed. It creates a
+private display/session bus and preserves native display and WebDriver logs.
+On Windows, `./scripts/run-windows-native.ps1` launches `XGECU_E2E_APP` with
+a private WebView2 test profile and attaches Tauri WebDriver to its loopback
+port. It uses the installed runtime and leaves the normal app configuration
+unchanged. Run this QA script in PowerShell 7.4 or later, with matching Edge
+WebDriver and `tauri-driver` on PATH.
 `node scripts/check-large-buffer.mjs` explicitly runs the 1.14 GiB and 2 GiB
 test and checks Linux engine peak RSS below 128 MiB, excluding compilation.
 

@@ -37,7 +37,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends \
   /workspace/desktop-app/artifacts/XGecuPro-Linux-x64.deb \
-  xvfb xauth webkit2gtk-driver ca-certificates fonts-dejavu-core
+  xvfb xauth webkit2gtk-driver ca-certificates fonts-dejavu-core dbus-x11 openbox wmctrl procps
 
 if ! getent group "$HOST_GID" >/dev/null; then
   groupadd --gid "$HOST_GID" xgecu-ci
@@ -61,7 +61,7 @@ run_native_tests() {
     APPDIR="$appdir" WEBKIT_DISABLE_DMABUF_RENDERER=1 \
     WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 \
     WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
-    xvfb-run -a node node_modules/@wdio/cli/bin/wdio.js run wdio.conf.mjs || result=$?
+    bash scripts/run-linux-native.sh || result=$?
   # The shared suite writes its native environment evidence to one fixed name.
   # Preserve a copy for each target alongside its variant-specific screenshots.
   if [[ -f test-results/native-environment.json ]]; then

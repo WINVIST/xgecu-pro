@@ -51,7 +51,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libarchive-tools patchelf xvfb webkit2gtk-driver time
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libarchive-tools patchelf xvfb webkit2gtk-driver time dbus-x11 openbox wmctrl procps
 
       - name: Install locked frontend dependencies
         run: npm ci --no-fund --no-audit
@@ -111,6 +111,14 @@ jobs:
       - name: Collect packages and SHA-256
         run: node scripts/collect-artifacts.mjs
 
+      - name: Preserve package candidates for native-test diagnostics
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: XGecuPro-${{ matrix.platform }}-package-candidates
+          path: desktop-app/artifacts/
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Install Linux package
         if: runner.os == 'Linux'
         shell: bash
@@ -146,8 +154,7 @@ jobs:
         run: |
           $env:PATH=($env:PATH.Split(';')|Where-Object {$_ -ine $env:XGECU_EXTRACTOR_BUILD_PATH}) -join ';'
           $env:XDG_CACHE_HOME=Join-Path $env:RUNNER_TEMP 'xgecu-installed-cache'
-          npm run test:e2e
-          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          ./scripts/run-windows-native.ps1
 
       - name: Check installed Linux application
         if: runner.os == 'Linux'
@@ -156,7 +163,7 @@ jobs:
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
           WEBKIT_DISABLE_COMPOSITING_MODE: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a npm run test:e2e
+        run: bash scripts/run-linux-native.sh
 
       - name: Check AppImage native application with a fresh cache
         if: runner.os == 'Linux'
@@ -169,7 +176,7 @@ jobs:
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
           WEBKIT_DISABLE_COMPOSITING_MODE: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a npm run test:e2e
+        run: bash scripts/run-linux-native.sh
 
       - name: Check DEB and AppImage on Debian 12
         if: runner.os == 'Linux'
