@@ -22,6 +22,8 @@ the oldest supported baseline.
 
 Evidence artifacts are `XGecuPro-Windows-verification`,
 `XGecuPro-Linux-verification`, and the existing macOS UI/package artifacts.
+Linux CI uses Xvfb with software GL and WebKit compositing disabled for the
+headless display; installed packages do not set these test-only variables.
 Only successful checks for the final revision are release evidence. The
 [pull request checks](https://github.com/WINVIST/xgecu-pro/pull/4/checks) show
 the current revision and all three platform gates; the release itself is

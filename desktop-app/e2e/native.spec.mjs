@@ -21,7 +21,12 @@ async function chooseFile(file){
     };
   },file);
 }
-async function screenshot(name){await browser.saveScreenshot(join('screenshots',process.env.XGECU_E2E_VARIANT||'installed',`${name}.png`));}
+async function screenshot(name){
+  const started=Date.now();
+  console.log(`[native-e2e] ${new Date().toISOString()} screenshot:start ${name}`);
+  await browser.saveScreenshot(join('screenshots',process.env.XGECU_E2E_VARIANT||'installed',`${name}.png`));
+  console.log(`[native-e2e] ${new Date().toISOString()} screenshot:end ${name} milliseconds=${Date.now()-started}`);
+}
 async function appearance(theme){await $('button[aria-label="Chip database settings"]').click();await $('select[aria-label="Appearance"]').selectByAttribute('value',theme);await browser.waitUntil(async()=>await $('html').getAttribute('data-theme')===theme);await $('button[aria-label="Chip database settings"]').click();}
 
 describe('Installed XGecu Pro (no programmer connected)',()=>{

@@ -154,6 +154,8 @@ jobs:
         env:
           XGECU_E2E_APP: /usr/bin/XGecuPro
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
         run: xvfb-run -a npm run test:e2e
 
       - name: Check AppImage native application with a fresh cache
@@ -165,6 +167,8 @@ jobs:
           XDG_CACHE_HOME: ${{ runner.temp }}/xgecu-appimage-cache
           XDG_CONFIG_HOME: ${{ runner.temp }}/xgecu-appimage-config
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
         run: xvfb-run -a npm run test:e2e
 
       - name: Check DEB and AppImage on Debian 12
