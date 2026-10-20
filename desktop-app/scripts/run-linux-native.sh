@@ -62,9 +62,12 @@ if [[ ${1:-} == --display-session ]]; then
   printf 'Native QA display=%s; private session bus ready; Openbox PID=%s\n' "$DISPLAY" "$wm_pid"
   cat "$run_directory/window-manager.log"
   result=0
-  timeout --signal=TERM --kill-after=10s 12m \
-    node node_modules/@wdio/cli/bin/wdio.js run wdio.conf.mjs \
-    2>&1 | tee "$run_directory/webdriver.log" || result=$?
+  # Bound the whole pipeline: a wedged driver can otherwise retain inherited
+  # output handles after Node exits, leaving tee waiting indefinitely.
+  timeout --signal=TERM --kill-after=10s 12m bash -c '
+    set -o pipefail
+    node node_modules/@wdio/cli/bin/wdio.js run wdio.conf.mjs 2>&1 | tee "$1"
+  ' _ "$run_directory/webdriver.log" || result=$?
   exit "$result"
 fi
 
