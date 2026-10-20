@@ -66,6 +66,7 @@ export function useApp(bridge: DesktopBridge) {
   const [usbNotes, setUsbNotes] = useState("");
   const [usbSleep, setUsbSleep] = useState(false);
   const operationLock = useRef(false);
+  const startupConnectionChecked = useRef(false);
   const pending = useRef<PreparedProgram | null>(null);
   const modal = useRef<Confirmation | null>(null);
   const live = useRef({ busy, buffer });
@@ -331,6 +332,19 @@ export function useApp(bridge: DesktopBridge) {
       );
     }
   }, [programmer, message]);
+  useEffect(() => {
+    if (
+      startupConnectionChecked.current ||
+      bridge.preview ||
+      navigator.platform !== "Win32"
+    )
+      return;
+    if (operationLock.current || pending.current || modal.current) return;
+    startupConnectionChecked.current = true;
+    // The native Windows info request checks the USB driver binding. It does
+    // not replace a driver or perform a chip operation.
+    void connect();
+  }, [bridge.preview, connect]);
   const selectChip = useCallback(
     async (name: string) => {
       if (operationLock.current || pending.current || modal.current) return;

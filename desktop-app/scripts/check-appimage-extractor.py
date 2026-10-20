@@ -4,28 +4,32 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
+import urllib.request
 
-appdir = Path("squashfs-root").resolve()
+appdir = Path(sys.argv[1] if len(sys.argv) > 1 else "squashfs-root").resolve()
 extractor = appdir / "usr/bin/bsdtar"
 libraries = appdir / "usr/lib/xgecu-extract"
 assert extractor.is_file()
 assert any((appdir / "usr/share/doc/xgecu-pro/extractor-notices").glob("*.txt"))
-archive = Path.home() / ".cache/minipro/xgpro_vendor.rar"
-assert archive.is_file(), "The helper's fresh-cache test must provision the pinned archive"
 vendor = Path("../minipro-rs/crates/minipro-db/src/vendor.rs").read_text()
 expected = re.search(r'const DEFAULT_VENDOR_SHA256: &str =\s*"([a-f0-9]{64})"', vendor).group(1)
-with archive.open("rb") as handle:
-    digest = hashlib.file_digest(handle, "sha256").hexdigest() if hasattr(hashlib,"file_digest") else None
-if digest is None:
-    h = hashlib.sha256()
-    with archive.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            h.update(chunk)
-    digest = h.hexdigest()
-assert digest == expected
+source = re.search(r'pub const DEFAULT_VENDOR_ARCHIVE: &str =\s*"(https://[^"]+)"', vendor).group(1)
 environment = {**os.environ, "PATH": "/xgecu-test-no-host-tools", "LD_LIBRARY_PATH": str(libraries)}
 with tempfile.TemporaryDirectory(prefix="xgecu-appimage-extract-") as temporary:
+    # The helper deliberately removes its archive after preparing the cache.
+    # Fetch a separate digest-checked test copy; never publish vendor data.
+    archive = Path(temporary) / "vendor.rar"
+    digest = hashlib.sha256()
+    size = 0
+    with urllib.request.urlopen(source, timeout=60) as response, archive.open("wb") as output:
+        for chunk in iter(lambda: response.read(65536), b""):
+            size += len(chunk)
+            assert size <= 96 * 1024 * 1024
+            digest.update(chunk)
+            output.write(chunk)
+    assert size >= 1024 * 1024 and digest.hexdigest() == expected
     outer = Path(temporary) / "outer"
     inner = Path(temporary) / "inner"
     outer.mkdir()

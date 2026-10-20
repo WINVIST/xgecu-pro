@@ -56,6 +56,11 @@ jobs:
       - name: Install locked frontend dependencies
         run: npm ci --no-fund --no-audit
 
+      - name: Build the Unicode-capable Windows archive extractor
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/prepare-windows-extractor.ps1
+
       - name: Check frontend
         run: |
           npm run build
@@ -127,6 +132,8 @@ jobs:
           $installation=Start-Process -FilePath $installer -ArgumentList '/S',"/D=$installDirectory" -WindowStyle Hidden -Wait -PassThru
           if($installation.ExitCode -ne 0){throw "Installer failed: $($installation.ExitCode)"}
           if(-not (Test-Path "$installDirectory\XGecuPro.exe")){throw 'Installed app is missing'}
+          if(-not (Test-Path "$installDirectory\resources\tools\bsdtar.exe")){throw 'Installed Unicode archive extractor is missing'}
+          if(-not (Test-Path "$installDirectory\resources\tools\notices\COPYING.txt")){throw 'Extractor license notice is missing'}
           "XGECU_E2E_APP=$installDirectory\XGecuPro.exe"|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           ./scripts/setup-webdriver.ps1
 
@@ -135,7 +142,12 @@ jobs:
 
       - name: Check installed Windows application
         if: runner.os == 'Windows'
-        run: npm run test:e2e
+        shell: pwsh
+        run: |
+          $env:PATH=($env:PATH.Split(';')|Where-Object {$_ -ine $env:XGECU_EXTRACTOR_BUILD_PATH}) -join ';'
+          $env:XDG_CACHE_HOME=Join-Path $env:RUNNER_TEMP 'xgecu-installed-cache'
+          npm run test:e2e
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 
       - name: Check installed Linux application
         if: runner.os == 'Linux'
@@ -147,13 +159,17 @@ jobs:
       - name: Check AppImage native application with a fresh cache
         if: runner.os == 'Linux'
         env:
-          XGECU_E2E_APP: ${{ github.workspace }}/desktop-app/squashfs-root/usr/bin/XGecuPro
+          XGECU_E2E_APP: ${{ github.workspace }}/desktop-app/squashfs-root/AppRun
           XGECU_E2E_VARIANT: AppImage
           APPDIR: ${{ github.workspace }}/desktop-app/squashfs-root
           XDG_CACHE_HOME: ${{ runner.temp }}/xgecu-appimage-cache
           XDG_CONFIG_HOME: ${{ runner.temp }}/xgecu-appimage-config
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
         run: xvfb-run -a npm run test:e2e
+
+      - name: Check DEB and AppImage on Debian 12
+        if: runner.os == 'Linux'
+        run: bash scripts/check-debian12.sh
 
       - name: Upload native UI and verification evidence
         if: always()

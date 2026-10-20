@@ -30,7 +30,7 @@ after its Windows, Linux and macOS jobs succeed for the same tag.
 
 ## Development checks recorded on 2026-10-20
 
-- Frontend: 24 tests, strict TypeScript and production build passed.
+- Frontend: 29 tests, strict TypeScript and production build passed.
 - Desktop Rust: 47 tests passed; the large-image test is explicitly run
   separately, rather than counted as coverage when ignored by the small suite.
 - Programmer workspace: 283 unit and 6 doc tests passed; five hardware/vendor
@@ -45,6 +45,8 @@ after its Windows, Linux and macOS jobs succeed for the same tag.
   run as the hosted runner's regular user on Ubuntu 22.04.
 - Offline cached lookup succeeded under a separate Linux network namespace;
   the empty-cache negative control failed with the expected network error.
+- The explicit release-profile large-image test passed both requested sizes
+  in 8.91 s, with 3,004 KiB peak RSS measured for the engine test process.
 
 These development results complement the required package gates above.
 

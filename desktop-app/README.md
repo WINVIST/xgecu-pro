@@ -36,8 +36,11 @@ ARM64 and 32-bit systems are outside this release.
    its origin and hash before running it.
 3. Connect the T76, close other programmer applications and click **Connect / Refresh**.
 
-The T76 interface must use Microsoft's **WinUSB** driver. XGecu Pro checks the
-binding and never installs or changes a driver. If the existing binding is
+The T76 interface must use Microsoft's **WinUSB** driver. On Windows, startup
+runs a read-only connection/driver check; Connect / Refresh repeats it after
+reconnecting. **USB Diagnostics → USB setup and recovery** contains the manual
+installation and restoration steps. The app never installs or changes a
+driver. If the existing binding is
 incompatible, record its name and provider in Device Manager before changing it.
 Use [Zadig](https://zadig.akeo.ie/) from its official site, show all devices and
 select only the T76 with USB ID **A466:1A86**, then choose WinUSB. Do not select a
@@ -89,7 +92,10 @@ its own `bsdtar` and extractor libraries; it does not require a host RAR tool.
 The public packages contain no XGecu database, firmware or proprietary FPGA
 bitstreams. The first catalog lookup downloads the pinned vendor archive,
 verifies its SHA-256 and extracts the required database into the user's cache.
-Windows uses its system libarchive-based `tar.exe`; DEB declares
+Windows includes a static libarchive `bsdtar` with a UTF-8 process manifest:
+system `tar.exe` cannot read an unselected Chinese PDF name in this particular
+vendor installer on every system locale. The CLI also supports system
+`tar.exe`, opening Unicode archive paths through a file handle. DEB declares
 `libarchive-tools`; AppImage supplies a separate extractor. Vendor installer
 EXE files are read as archives and are never executed.
 
@@ -158,7 +164,11 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 npm run tauri -- dev
 ```
 
-Windows packaging uses `npm run tauri -- build --config src-tauri/tauri.windows.conf.json`.
+For Windows packaging, first run `./scripts/prepare-windows-extractor.ps1`
+in PowerShell (CMake and MSVC are required), then
+`npm run tauri -- build --config src-tauri/tauri.windows.conf.json`.
+The extractor source and SHA-256 are pinned; its license and provenance ship
+with the app. The script does not modify the system `tar.exe` or Windows locale.
 For Linux, run `bash scripts/prepare-extractor.sh` before
 `npm run tauri -- build --config src-tauri/tauri.linux.conf.json`.
 

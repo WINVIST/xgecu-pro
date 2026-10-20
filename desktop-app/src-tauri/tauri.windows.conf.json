@@ -1,1 +1,12 @@
-{"bundle":{"targets":["nsis"]}}
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "resources": [
+      "resources/70-xgecu-pro.rules",
+      "resources/USB-SETUP.txt",
+      "resources/licenses/*",
+      "resources/tools/bsdtar.exe",
+      "resources/tools/notices/*"
+    ]
+  }
+}

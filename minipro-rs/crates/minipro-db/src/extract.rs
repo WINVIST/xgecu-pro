@@ -153,8 +153,19 @@ impl Extractor {
         };
         match self {
             // bsdtar has no output-directory flag; it extracts into the cwd.
-            Extractor::BsdTar | Extractor::WindowsTar => {
+            Extractor::BsdTar => {
                 cmd.arg("-xf").arg(archive).args(members).current_dir(dest);
+            }
+            Extractor::WindowsTar => {
+                // Windows' libarchive build reads argv through the ANSI code
+                // page. Open the Unicode archive path ourselves and use the
+                // wide-character process cwd for its destination. Inherit a
+                // seekable file handle, not a pipe: RAR/SFX readers may seek.
+                let input = std::fs::File::open(archive)?;
+                cmd.args(["-xf", "-"])
+                    .args(members)
+                    .stdin(Stdio::from(input))
+                    .current_dir(dest);
             }
             Extractor::Unar => {
                 cmd.args(["-q", "-f", "-o"]).arg(dest).arg(archive);
@@ -295,7 +306,9 @@ pub fn find() -> Option<Extractor> {
 fn candidates(windows: bool) -> Vec<Extractor> {
     let mut tools = vec![Extractor::BsdTar, Extractor::Unar, Extractor::Unrar];
     if windows {
-        tools.insert(0, Extractor::WindowsTar);
+        // The desktop app supplies a UTF-8-capable bsdtar. System tar remains
+        // a fallback, but some builds reject non-ANSI names in vendor SFXs.
+        tools.insert(1, Extractor::WindowsTar);
     }
     tools
 }
@@ -501,8 +514,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_uses_system_libarchive_tar_before_optional_tools() {
-        assert_eq!(candidates(true)[0], Extractor::WindowsTar);
+    fn windows_prefers_utf8_bsdtar_then_system_tar_before_optional_tools() {
+        assert_eq!(
+            candidates(true),
+            vec![
+                Extractor::BsdTar,
+                Extractor::WindowsTar,
+                Extractor::Unar,
+                Extractor::Unrar
+            ]
+        );
         assert!(!candidates(false).contains(&Extractor::WindowsTar));
         assert!(Extractor::WindowsTar.supports_members());
         assert_eq!(Extractor::WindowsTar.program(), "tar.exe");
@@ -526,19 +547,18 @@ mod tests {
         );
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("source with spaces База");
-        let destination = directory.path().join("destination with spaces");
+        let destination = directory.path().join("destination with spaces База");
         std::fs::create_dir_all(source.join("algoT76")).unwrap();
         std::fs::create_dir_all(&destination).unwrap();
         std::fs::write(source.join("InfoICT76.dll"), b"test catalog").unwrap();
         std::fs::write(source.join("algoT76/test.alg"), b"test algorithm").unwrap();
         std::fs::write(source.join("unneeded.txt"), b"not selected").unwrap();
-        let archive = directory.path().join("archive with spaces.tar");
+        let archive = directory.path().join("archive with spaces База.tar");
         let status = tool
             .command()
-            .arg("-cf")
-            .arg(&archive)
-            .arg("-C")
-            .arg(&source)
+            .args(["-cf", "-"])
+            .stdout(std::fs::File::create(&archive).unwrap())
+            .current_dir(&source)
             .args(["InfoICT76.dll", "algoT76", "unneeded.txt"])
             .status()
             .unwrap();

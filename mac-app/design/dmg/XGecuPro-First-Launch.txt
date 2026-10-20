@@ -1,6 +1,6 @@
-XGecu Pro 1.1.2 - first launch on macOS
+XGecu Pro 1.2.0-beta.1 - first launch on macOS
 
-1. Download only from https://github.com/WINVIST/xgecu-pro/releases/tag/v1.1.2
+1. Download only from https://github.com/WINVIST/xgecu-pro/releases/tag/v1.2.0-beta.1
    and verify the matching SHA-256 file before opening the download.
    From the folder containing both files, run:
 

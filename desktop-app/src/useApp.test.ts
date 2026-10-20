@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { createElement, StrictMode, type PropsWithChildren } from "react";
 import { useApp } from "./useApp";
 import {
   emptyBuffer,
@@ -87,6 +88,38 @@ async function ready(bridge: DesktopBridge) {
   return hook;
 }
 
+describe("platform-specific startup connection check", () => {
+  it("checks native Windows once even when Strict Mode replays startup effects", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Win32");
+    const { bridge } = testBridge();
+    const hook = renderHook(() => useApp(bridge), {
+      wrapper: ({ children }: PropsWithChildren) =>
+        createElement(StrictMode, null, children),
+    });
+    await waitFor(() => expect(hook.result.current.connected).toBe(true));
+    hook.rerender();
+    expect(bridge.programmer).toHaveBeenCalledTimes(1);
+    expect(bridge.programmer).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "connect" }),
+    );
+    expect(bridge.prepare).not.toHaveBeenCalled();
+  });
+  it.each(["Linux x86_64", "MacIntel"])(
+    "keeps %s startup unchanged",
+    async (platform) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+      const { bridge } = testBridge();
+      await mounted(bridge);
+      expect(bridge.programmer).not.toHaveBeenCalled();
+    },
+  );
+  it("does not check hardware from a Windows browser preview", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Win32");
+    const { bridge } = testBridge();
+    await mounted({ ...bridge, preview: true });
+    expect(bridge.programmer).not.toHaveBeenCalled();
+  });
+});
 describe("programming confirmation and operation exclusion", () => {
   it("prepares a private snapshot, locks conflicting changes, and cancels without writing", async () => {
     const { bridge } = testBridge();
@@ -173,7 +206,9 @@ describe("programming confirmation and operation exclusion", () => {
 describe("catalog completeness and file-buffer safety", () => {
   it("rejects an unreadable firmware selection before changing the programming source", async () => {
     const { bridge } = testBridge();
-    vi.mocked(bridge.inspectFile).mockRejectedValueOnce(new Error("The firmware file is not readable."));
+    vi.mocked(bridge.inspectFile).mockRejectedValueOnce(
+      new Error("The firmware file is not readable."),
+    );
     const { result } = await mounted(bridge);
     await act(() => result.current.chooseFirmware());
     expect(result.current.firmware).toBe("");

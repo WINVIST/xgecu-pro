@@ -72,10 +72,12 @@ impl Runner {
                 )
                 .hint("Reinstall XGecu Pro from a complete release package.")
             })?;
-        let bundled_tools = resource.join("tools");
+        let bundled_tools = [resource.join("tools"), resource.join("resources/tools")]
+            .into_iter()
+            .find(|path| path.is_dir());
         Ok(Self {
             executable,
-            extractor_dir: bundled_tools.is_dir().then_some(bundled_tools),
+            extractor_dir: bundled_tools,
         })
     }
 
@@ -162,7 +164,7 @@ impl Runner {
             .env("MINIPRO_REQUIRE_MODEL", "T76")
             .env("MINIPRO_REQUIRE_CHIP_ID", "1")
             .env("MINIPRO_TRUST_PINNED_DB_ONLY", "1");
-        // AppImage ships bsdtar and its license alongside the helper. The
+        // Packages can ship bsdtar and its license alongside the helper. The
         // extractor directory only comes from the installed resource bundle.
         if let Some(dir) = &self.extractor_dir {
             let mut paths = vec![dir.clone()];

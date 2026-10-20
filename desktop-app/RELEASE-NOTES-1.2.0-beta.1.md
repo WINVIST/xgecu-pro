@@ -24,7 +24,9 @@ run as a normal desktop user. ARM64 is outside this preview.
 
 No proprietary XGecu database or firmware is bundled. First use retrieves the
 SHA-256-pinned database; subsequent launches can reuse its local cache offline.
-The AppImage includes a separate libarchive-based extractor and its notices.
+Windows and AppImage include separate libarchive-based extractors and their
+notices. Windows uses a UTF-8 process manifest to handle vendor archive names
+without changing the system locale.
 
 This port does not add the future BIOS/BMC roadmap features or partial-region
 preservation. Erasable chips continue to use the existing whole-chip erase and

@@ -226,10 +226,7 @@ function ChipRows({ model }: { model: AppModel }) {
           <div aria-hidden="true" style={{ height: first * rowHeight }} />
           {rows.slice(first, last).map((row) =>
             row.section ? (
-              <div
-                className="chip-section"
-                key={`section-${row.label}`}
-              >
+              <div className="chip-section" key={`section-${row.label}`}>
                 {row.label}
               </div>
             ) : (
@@ -274,7 +271,10 @@ function ChipRows({ model }: { model: AppModel }) {
               </div>
             ),
           )}
-          <div aria-hidden="true" style={{ height: (rows.length - last) * rowHeight }} />
+          <div
+            aria-hidden="true"
+            style={{ height: (rows.length - last) * rowHeight }}
+          />
         </div>
       ) : (
         <div className="sidebar-empty">
@@ -1198,18 +1198,53 @@ export function USBDiagnostics({ model }: { model: AppModel }) {
         your optional connection notes, but no programmer serial number or chip
         contents.
       </p>
-      <Disclosure title="USB access on Windows and Linux">
-        <p className="caption">
-          Windows: the T76 must use WinUSB. Check the driver in Device Manager.
-          To change it, follow the installation guide and record the previous
-          driver first; use Roll Back Driver or reinstall that driver to restore
-          it.
-        </p>
-        <p className="caption">
-          Linux: install the included T76 udev rule, then unplug and reconnect
-          the programmer. Run XGecu Pro as your normal user.
-        </p>
-      </Disclosure>
+      <USBSetupGuide />
     </Modal>
+  );
+}
+export function USBSetupGuide() {
+  return (
+    <Disclosure title="USB setup and recovery">
+      <div className="usb-guide caption">
+        <h3>Windows · WinUSB</h3>
+        <ol>
+          <li>
+            Close Xgpro and other programmer apps. In Device Manager, open the
+            T76 properties and record its current driver name, provider and
+            version.
+          </li>
+          <li>
+            If WinUSB is missing, get Zadig only from the official site:
+            zadig.akeo.ie. Its signature should identify Akeo Consulting.
+          </li>
+          <li>
+            In Zadig, use Options → List All Devices if needed. Select only the
+            T76 and confirm USB ID A466:1A86. Choose WinUSB, then Install Driver
+            or Replace Driver. Reconnect the T76 and use Connect / Refresh.
+          </li>
+          <li>
+            Changing this driver can affect Xgpro. To restore it, use Device
+            Manager → T76 → Properties → Driver → Roll Back Driver, or reinstall
+            the original vendor driver you recorded.
+          </li>
+        </ol>
+        <p>
+          XGecu Pro checks the connection; driver installation remains a manual
+          step.
+        </p>
+        <h3>Linux · udev</h3>
+        <p>
+          The DEB installs the included 70-xgecu-pro.rules. For AppImage, copy
+          that file into /etc/udev/rules.d/ with administrator rights. The rule
+          grants the active local desktop user access only to USB vendor a466,
+          product 1a86.
+        </p>
+        <p>
+          Reload with <code>sudo udevadm control --reload-rules</code>, then
+          unplug and reconnect the T76. Run XGecu Pro as your ordinary desktop
+          user.
+        </p>
+      </div>
+    </Disclosure>
   );
 }

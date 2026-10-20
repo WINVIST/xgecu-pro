@@ -116,6 +116,9 @@ describe('Installed XGecu Pro (no programmer connected)',()=>{
   it('runs real no-device USB diagnostics and exports its report',async()=>{
     await $('button=USB Diagnostics…').click();
     await $('dialog').waitForDisplayed();
+    await $('summary=USB setup and recovery').click();
+    await expect($('.usb-guide')).toHaveText(expect.stringContaining('Roll Back Driver'));
+    await $('summary=USB setup and recovery').click();
     await $('button=Test Connection').click();
     await $('button=New Test').waitForEnabled();
     await $('summary=Technical report').click();

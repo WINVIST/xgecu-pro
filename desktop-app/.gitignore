@@ -12,3 +12,5 @@ src-tauri/icons/Square*.png
 src-tauri/icons/StoreLogo.png
 src-tauri/icons/icon.icns
 src-tauri/resources/extractor/
+src-tauri/resources/tools/
+scripts/__pycache__/

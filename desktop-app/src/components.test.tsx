@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Modal } from "./components";
+import { Modal, USBSetupGuide } from "./components";
 describe("destructive confirmation keyboard behavior", () => {
   it("focuses Cancel and treats Enter on every control as cancellation", () => {
     const cancel = vi.fn();
@@ -49,5 +49,18 @@ describe("destructive confirmation keyboard behavior", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Erase" }));
     expect(program).toHaveBeenCalledOnce();
+  });
+});
+describe("USB setup and recovery guide", () => {
+  it("keeps setup collapsed and includes scoped installation and driver restoration instructions", () => {
+    render(<USBSetupGuide />);
+    const summary = screen.getByText("USB setup and recovery");
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(summary);
+    expect(screen.getByText(/zadig.akeo.ie/)).toBeVisible();
+    expect(screen.getByText(/A466:1A86/)).toBeVisible();
+    expect(screen.getByText(/Roll Back Driver/)).toBeVisible();
+    expect(screen.getByText(/ordinary desktop user/)).toBeVisible();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

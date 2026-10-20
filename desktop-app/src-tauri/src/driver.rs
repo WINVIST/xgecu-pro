@@ -31,7 +31,7 @@ fn validate_driver(driver: Option<&str>) -> Result<()> {
         return Ok(());
     }
     Err(crate::error::BridgeError::new("driver_incompatible", format!("The T76 USB driver is {}. XGecu Pro requires WinUSB.", driver.unwrap_or("not installed")))
-        .hint("See USB Setup for the T76 a466:1a86 driver installation and restore procedure. The app does not replace drivers automatically."))
+        .hint("Open USB Diagnostics > USB setup and recovery for the T76 a466:1a86 installation and restore steps. The app does not replace drivers automatically."))
 }
 
 #[cfg(test)]
