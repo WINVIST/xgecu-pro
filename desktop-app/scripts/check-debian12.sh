@@ -58,7 +58,7 @@ run_native_tests() {
     XDG_CONFIG_HOME="/home/xgecu-ci/.config/$variant" \
     XDG_DATA_HOME="/home/xgecu-ci/.local/share/$variant" \
     XGECU_E2E_APP="$application" XGECU_E2E_VARIANT="$variant" \
-    APPDIR="$appdir" WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+    APPDIR="$appdir" WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 \
     LIBGL_ALWAYS_SOFTWARE=1 \
     WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
     bash scripts/run-linux-native.sh || result=$?

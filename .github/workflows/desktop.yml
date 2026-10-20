@@ -162,7 +162,7 @@ jobs:
         timeout-minutes: 15
         env:
           XGECU_E2E_APP: /usr/bin/XGecuPro
-          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+          WEBKIT_DMABUF_RENDERER_FORCE_SHM: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: bash scripts/run-linux-native.sh
 
@@ -175,7 +175,7 @@ jobs:
           APPDIR: ${{ github.workspace }}/desktop-app/squashfs-root
           XDG_CACHE_HOME: ${{ runner.temp }}/xgecu-appimage-cache
           XDG_CONFIG_HOME: ${{ runner.temp }}/xgecu-appimage-config
-          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+          WEBKIT_DMABUF_RENDERER_FORCE_SHM: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: bash scripts/run-linux-native.sh
 

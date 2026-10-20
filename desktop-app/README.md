@@ -183,6 +183,10 @@ themes and no-device diagnostics. They do not replace the USB transport.
 On a headless Linux host, use `bash scripts/run-linux-native.sh` as a regular
 user with Xvfb, Openbox, wmctrl, dbus-x11 and procps installed. It creates a
 private display/session bus and preserves native display and WebDriver logs.
+For a software-rendered CI display, prefix that command with
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 LIBGL_ALWAYS_SOFTWARE=1`. Avoid disabling
+compositing or the entire DMA-BUF renderer: WebKitGTK 2.50 can otherwise leave
+native screenshot callbacks waiting for a repaint.
 On Windows, `./scripts/run-windows-native.ps1` launches `XGECU_E2E_APP` with
 a private WebView2 test profile and attaches Tauri WebDriver to its loopback
 port. It uses the installed runtime and leaves the normal app configuration

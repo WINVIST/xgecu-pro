@@ -23,7 +23,7 @@ the oldest supported baseline.
 Evidence artifacts are `XGecuPro-Windows-verification`,
 `XGecuPro-Linux-verification`, and the existing macOS UI/package artifacts.
 Linux CI uses Xvfb, an Openbox window manager and a private D-Bus session with
-software GL and WebKit's default compositor for the headless display;
+software GL and WebKit's shared-memory composited transport for the headless display;
 installed packages do not set these test-only variables. Package-candidate
 artifacts support native-test diagnostics and are excluded from publication.
 Windows QA starts the installed executable with a private WebView2 profile
@@ -63,6 +63,10 @@ after its Windows, Linux and macOS jobs succeed for the same tag.
   in 13.5 seconds using the installed WebView2 155.0.4283.62 and matching driver,
   a fresh cache/profile, and a measured Medium/non-elevated user token.
   Native screenshots, keyboard focus, compact layout and 125% scale passed.
+- The unchanged CI-built AppImage also passed all five native scenarios with
+  the matching Ubuntu WebKitGTK/WebDriver 2.50.4, an unprivileged UID, a fresh
+  cache and sandboxing enabled in WSL. Shared-memory composited rendering
+  resolved the reproduced headless screenshot stall; assertions were unchanged.
 - Offline cached lookup succeeded under a separate Linux network namespace;
   the empty-cache negative control failed with the expected network error.
 - The explicit release-profile large-image test passed both requested sizes
