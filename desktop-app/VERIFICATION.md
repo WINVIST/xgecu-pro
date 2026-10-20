@@ -23,7 +23,7 @@ the oldest supported baseline.
 Evidence artifacts are `XGecuPro-Windows-verification`,
 `XGecuPro-Linux-verification`, and the existing macOS UI/package artifacts.
 Linux CI uses Xvfb, an Openbox window manager and a private D-Bus session with
-software GL and WebKit compositing disabled for the headless display;
+software GL and WebKit's default compositor for the headless display;
 installed packages do not set these test-only variables. Package-candidate
 artifacts support native-test diagnostics and are excluded from publication.
 Windows QA starts the installed executable with a private WebView2 profile

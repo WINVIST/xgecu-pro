@@ -62,7 +62,8 @@ if [[ ${1:-} == --display-session ]]; then
   printf 'Native QA display=%s; private session bus ready; Openbox PID=%s\n' "$DISPLAY" "$wm_pid"
   cat "$run_directory/window-manager.log"
   result=0
-  node node_modules/@wdio/cli/bin/wdio.js run wdio.conf.mjs \
+  timeout --signal=TERM --kill-after=10s 12m \
+    node node_modules/@wdio/cli/bin/wdio.js run wdio.conf.mjs \
     2>&1 | tee "$run_directory/webdriver.log" || result=$?
   exit "$result"
 fi

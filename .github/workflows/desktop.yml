@@ -150,6 +150,7 @@ jobs:
 
       - name: Check installed Windows application
         if: runner.os == 'Windows'
+        timeout-minutes: 12
         shell: pwsh
         run: |
           $env:PATH=($env:PATH.Split(';')|Where-Object {$_ -ine $env:XGECU_EXTRACTOR_BUILD_PATH}) -join ';'
@@ -158,15 +159,16 @@ jobs:
 
       - name: Check installed Linux application
         if: runner.os == 'Linux'
+        timeout-minutes: 15
         env:
           XGECU_E2E_APP: /usr/bin/XGecuPro
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
-          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: bash scripts/run-linux-native.sh
 
       - name: Check AppImage native application with a fresh cache
         if: runner.os == 'Linux'
+        timeout-minutes: 15
         env:
           XGECU_E2E_APP: ${{ github.workspace }}/desktop-app/squashfs-root/AppRun
           XGECU_E2E_VARIANT: AppImage
@@ -174,12 +176,12 @@ jobs:
           XDG_CACHE_HOME: ${{ runner.temp }}/xgecu-appimage-cache
           XDG_CONFIG_HOME: ${{ runner.temp }}/xgecu-appimage-config
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
-          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: bash scripts/run-linux-native.sh
 
       - name: Check DEB and AppImage on Debian 12
         if: runner.os == 'Linux'
+        timeout-minutes: 20
         run: bash scripts/check-debian12.sh
 
       - name: Upload native UI and verification evidence
